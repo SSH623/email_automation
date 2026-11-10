@@ -1074,6 +1074,15 @@ button:focus-visible,input:focus-visible,[contenteditable=true]:focus-visible {
 .promo-grey .promo-logo,.post-grey .post-event-logo,.op-grey .operational-logo-module {
   background:var(--artifact-email-gray)
 }
+.email-logo-img {
+  display:block;
+  height:20px;
+  width:auto;
+  margin:0 auto;
+  user-select:none;
+  -webkit-user-select:none;
+  pointer-events:none
+}
 .email-logo {
   display:inline-block;
   color:var(--artifact-email-green);
@@ -3048,6 +3057,13 @@ All emails in this brief have been confirmed and pushed to the brief.
     }
 
 
+    // The fixed MongoDB logo at the top of every email. It is an image, not an editable field: it has no
+    // data-edit attribute, so it cannot be clicked, edited or removed in the preview.
+    const EMAIL_LOGO_URL = 'https://info.mongodb.com/rs/149-CBJ-136/images/mongodb-logo-112x28-2x.png';
+    function emailLogoMarkup() {
+      return '<img class="email-logo-img" src="' + EMAIL_LOGO_URL + '" alt="MongoDB" draggable="false" referrerpolicy="no-referrer">';
+    }
+
     const CARD_EYEBROW_TOP_PADDING = 24;
     const NO_BANNER_DATE_GREETING_GAP = 16;
 
@@ -4180,7 +4196,7 @@ All emails in this brief have been confirmed and pushed to the brief.
         content = header + body;
       }
 
-      return '<div class="promo-email ' + (grey ? 'promo-grey' : 'promo-white') + '"><div class="promo-logo"><span class="email-logo">MONGODB</span></div><div class="' + (card ? 'promo-card' : 'promo-simple') + '">' + content + '</div></div>';
+      return '<div class="promo-email ' + (grey ? 'promo-grey' : 'promo-white') + '"><div class="promo-logo">' + emailLogoMarkup() + '</div><div class="' + (card ? 'promo-card' : 'promo-simple') + '">' + content + '</div></div>';
     }
 
     // Builds the preview HTML for the "Post-Event-Follow-Up" template, assembling editable field
@@ -4205,7 +4221,7 @@ All emails in this brief have been confirmed and pushed to the brief.
       const image = '<div class="post-event-image-wrap"><img class="post-event-image" src="' + banner + '" alt="Event banner" loading="eager" decoding="async" referrerpolicy="no-referrer"></div>';
       const content = edit('eyebrow', eyebrow, 'post-event-module post-event-eyebrow', 'Email eyebrow', eyebrowTopPadding ? 'padding-top:' + eyebrowTopPadding + 'px' : '') + edit('eventTitle', headline, 'post-event-module post-event-headline', 'Email title') + edit('eventDatetime', date, 'post-event-module post-event-date', 'Email date and time', dateGreetingGap ? 'padding-bottom:' + dateGreetingGap + 'px' : '') + image + edit('salutation', salutation, 'post-event-module post-event-greeting', 'Email salutation') + edit('bodyPara1', paragraph1, 'post-event-module post-event-copy first', 'Email paragraph 1') + edit('bodyPara2', paragraph2, 'post-event-module post-event-copy second', 'Email paragraph 2') + '<div class="post-event-cta-wrap"><span class="post-event-cta editable" contenteditable="false" data-modal-editable="true" data-edit="cta" role="textbox" aria-label="Email call to action">' + esc(cta) + '</span></div>' + edit('bodyPara3', paragraph3, 'post-event-module post-event-copy post-event-final', 'Email paragraph 3');
 
-      return '<div class="post-event-email ' + (grey ? 'post-grey' : 'post-white') + '"><div class="post-event-logo"><span class="email-logo">MONGODB</span></div><div class="' + (card ? 'post-event-card' : 'post-event-simple') + '">' + content + '</div></div>';
+      return '<div class="post-event-email ' + (grey ? 'post-grey' : 'post-white') + '"><div class="post-event-logo">' + emailLogoMarkup() + '</div><div class="' + (card ? 'post-event-card' : 'post-event-simple') + '">' + content + '</div></div>';
     }
 
     // Builds the preview HTML for the "Operational-Update" template (no banner/CTA — just a
@@ -4219,7 +4235,7 @@ All emails in this brief have been confirmed and pushed to the brief.
       const paragraph3 = previewValue(email, 'bodyPara3', 'Thank you for partnering with MongoDB.');
       const content = '<div class="operational-simple-body operational-copy">' + edit('salutation', salutation, 'operational-salutation', 'Email salutation') + edit('bodyPara1', paragraph1, 'operational-paragraph', 'Email paragraph 1') + edit('bodyPara2', paragraph2, 'operational-paragraph second', 'Email paragraph 2') + edit('bodyPara3', paragraph3, 'operational-paragraph third', 'Email paragraph 3') + '</div><div class="operational-bottom-space"></div>';
 
-      return '<div class="operational-email ' + (grey ? 'op-grey' : 'op-white') + '"><div class="operational-logo-module"><span class="operational-logo email-logo">MONGODB</span></div><div class="' + (card ? 'operational-card' : 'operational-simple-body') + '"><div class="operational-spacer"></div>' + content + '</div></div>';
+      return '<div class="operational-email ' + (grey ? 'op-grey' : 'op-white') + '"><div class="operational-logo-module">' + emailLogoMarkup() + '</div><div class="' + (card ? 'operational-card' : 'operational-simple-body') + '"><div class="operational-spacer"></div>' + content + '</div></div>';
     }
 
     // Picks the right preview renderer for the current email's template, injects the resulting markup

@@ -1,6 +1,6 @@
 # Email Automation
 
-This repository contains three Workato MCP apps that support the email campaign workflow. Tactic Selection and Brief Builder are currently **v1**. Email Studio is **v2.2**.
+This repository contains three Workato MCP apps that support the email campaign workflow. Tactic Selection and Brief Builder are currently **v1**. Email Studio is **v2.3**.
 
 ## Apps
 
@@ -38,11 +38,20 @@ These are MCP apps intended to run inside their host environment, not standalone
 | --- | --- | --- |
 | Tactic Selection | v1 | Initial release. |
 | Brief Builder | v1 | Initial release. |
-| Email Studio | v2.2 | Saving and pushing overlays, approval notice, approval button fix. See the changelog below. |
+| Email Studio | v2.3 | Fixed MongoDB logo image in every email preview. See the changelog below. |
 
 When Sandbox changes are promoted to Production, bump the version here and add an entry to the app's changelog. Production keeps a single file; earlier versions live in the git history. Put the release date under each changelog entry.
 
 ## Email Studio Changelog
+
+### v2.3
+
+Released 2026-11-10. Promoted from Sandbox to Production. Production is identical to Sandbox.
+
+**Email logo**
+- The "MONGODB" text at the top of every email preview is now the MongoDB logo image (`https://info.mongodb.com/rs/149-CBJ-136/images/mongodb-logo-112x28-2x.png`), in all three templates and in both card and simple layouts.
+- It is fixed: it has no edit target, so it cannot be clicked, edited or removed, and it ignores pointer events and cannot be selected or dragged.
+- It is shown 20px tall (about the height the text took) with the width following the image's proportions. The logo is defined once (`EMAIL_LOGO_URL` and `emailLogoMarkup()`).
 
 ### v2.2
 
