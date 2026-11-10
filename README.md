@@ -1,6 +1,6 @@
 # Email Automation
 
-This repository contains three Workato MCP apps that support the email campaign workflow. Tactic Selection and Brief Builder are currently **v1**. Email Studio is **v2**.
+This repository contains three Workato MCP apps that support the email campaign workflow. Tactic Selection and Brief Builder are currently **v1**. Email Studio is **v2.1**.
 
 ## Apps
 
@@ -38,11 +38,22 @@ These are MCP apps intended to run inside their host environment, not standalone
 | --- | --- | --- |
 | Tactic Selection | v1 | Initial release. |
 | Brief Builder | v1 | Initial release. |
-| Email Studio | v2 | Sandbox changes promoted to Production. See the changelog below. |
+| Email Studio | v2.1 | New send date rules per email family. See the changelog below. |
 
-When Sandbox changes are promoted to Production, bump the version here and add an entry to the app's changelog. The previous Production file is kept in `Production/archive/`.
+When Sandbox changes are promoted to Production, bump the version here and add an entry to the app's changelog. The previous Production file is kept in `Production/archive/` (`email_studio_v1.html`, `email_studio_v2.html`).
 
 ## Email Studio Changelog
+
+### v2.1
+
+Promoted from Sandbox to Production. The v2 file is archived at `Email Studio/Production/archive/email_studio_v2.html`.
+
+**Send date rules**
+- Post-event emails (registrant, attendee, no-show) and reminder emails (all `reminder_*` types): the send date must be at least 3 days from today (the next two days are blocked) and cannot fall on a Saturday or Sunday.
+- Confirmation-family emails (event cancellation, event postponement, confirmation, waitlist, KBYG): any date from today onwards, weekends allowed. These previously followed the reminder rule.
+- Pre-event emails: unchanged, at least 7 days from today.
+- Dates before the minimum are greyed out in the calendar. The browser's date picker cannot grey out individual weekend days, so a weekend date can still be picked. The Send date field then turns red with a message, and Save draft, Push to brief and Build stay blocked until a valid date is set.
+- The help text under Send date now shows the rule for that email's family.
 
 ### v2
 

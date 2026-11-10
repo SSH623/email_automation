@@ -4778,30 +4778,56 @@ Building email…
       return sendDateProblem(email) !== '';
     }
 
-    // Earliest allowed send date for this email: reminders today, post-event emails tomorrow,
-    // pre-event emails (and anything else) 7 days from today.
+    // Whether the email is in the confirmation family (cancellation, postponement, confirmation,
+    // waitlist, KBYG). These share the reminder design but have their own, looser send date rule.
+    function isConfirmationFamilyEmail(email) {
+      return Boolean(email) && Boolean(confirmationFamilyTypes[String(email.emailType || '').trim().toLowerCase()]);
+    }
+
+    // Send date rule for this email:
+    // - confirmation family: today or any future date, weekends allowed.
+    // - reminder and post-event families: at least 3 days from today (so tomorrow and the day after
+    //   are blocked), and never a Saturday or Sunday.
+    // - pre-event (and anything else): at least 7 days from today.
+    function sendDateRule(email) {
+      if (isConfirmationFamilyEmail(email)) return { minDays: 0, noWeekends: false };
+      if (isReminderEmail(email) || email.businessFamily === 'post-event') return { minDays: 3, noWeekends: true };
+      return { minDays: 7, noWeekends: false };
+    }
+
+    // Earliest allowed send date for this email, as 'YYYY-MM-DD'.
     function minimumSendDateFor(email) {
-      if (isReminderEmail(email)) return minimumSendDate(0);
-      if (email.businessFamily === 'post-event') return minimumSendDate(1);
-      return minimumSendDate(7);
+      return minimumSendDate(sendDateRule(email).minDays);
+    }
+
+    // Whether a 'YYYY-MM-DD' string falls on a Saturday or Sunday.
+    function isWeekendDate(value) {
+      const [year, month, day] = String(value || '').split('-').map(Number);
+      if (!year || !month || !day) return false;
+      const weekday = new Date(year, month - 1, day).getDay();
+      return weekday === 0 || weekday === 6;
     }
 
     // The send date rule in words, for messages.
     function sendDateRuleText(email) {
-      if (isReminderEmail(email)) return 'today or later';
-      if (email.businessFamily === 'post-event') return 'tomorrow or later';
-      return 'at least 7 days from today';
+      const rule = sendDateRule(email);
+      if (rule.minDays === 0) return 'today or later';
+      if (rule.noWeekends) return 'at least 3 days from today and not on a weekend';
+      return 'at least ' + rule.minDays + ' days from today';
     }
 
-    // '' when the send date is fine, 'missing' when empty, 'early' when before the allowed minimum.
+    // '' when the send date is fine, 'missing' when empty, 'early' when before the allowed minimum,
+    // 'weekend' when the email's rule forbids weekends and the date is a Saturday or Sunday.
     function sendDateProblem(email) {
       if (!email.sendDate) return 'missing';
-      return email.sendDate < minimumSendDateFor(email) ? 'early' : '';
+      if (email.sendDate < minimumSendDateFor(email)) return 'early';
+      if (sendDateRule(email).noWeekends && isWeekendDate(email.sendDate)) return 'weekend';
+      return '';
     }
 
     // The next-step / blocker wording for a bad send date.
     function sendDatePrompt(email) {
-      return sendDateProblem(email) === 'early'
+      return sendDateProblem(email) === 'early' || sendDateProblem(email) === 'weekend'
         ? 'Set a valid send date (' + sendDateRuleText(email) + ')'
         : 'Set a send date';
     }
@@ -4813,10 +4839,10 @@ Building email…
       if (!input || !message || !email) {
         return;
       }
-      const early = sendDateProblem(email) === 'early';
-      input.setAttribute('aria-invalid', early ? 'true' : 'false');
-      message.textContent = early ? 'Send date must be ' + sendDateRuleText(email) + '.' : '';
-      message.hidden = !early;
+      const invalid = ['early', 'weekend'].includes(sendDateProblem(email));
+      input.setAttribute('aria-invalid', invalid ? 'true' : 'false');
+      message.textContent = invalid ? 'Send date must be ' + sendDateRuleText(email) + '.' : '';
+      message.hidden = !invalid;
     }
 
     // Event fields that must contain text whenever the email's template shows them.
@@ -4951,6 +4977,10 @@ Building email…
       sendDate.min = minimumSendDateFor(email);
       sendDate.value = email.sendDate;
       updateSendDateIndicator(email);
+      const sendDateHelp = sendDate.closest('label').querySelector('.field-help');
+      if (sendDateHelp) {
+        sendDateHelp.textContent = 'The day this email goes out (' + sendDateRuleText(email) + ').';
+      }
       document.querySelector('[data-field="ctaUrl"]').value = email.ctaUrl || defaultCtaUrl(email);
       ctaUrlWrapper.hidden = email.template === 'Operational-Update';
       renderBannerControl(email);
