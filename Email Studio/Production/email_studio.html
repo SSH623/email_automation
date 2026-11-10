@@ -102,6 +102,37 @@ button:focus-visible,input:focus-visible,[contenteditable=true]:focus-visible {
   font-weight:700;
   color:var(--artifact-slate)
 }
+.build-lock-overlay[hidden] {
+  display:none
+}
+.approved-notice-box {
+  flex-direction:column;
+  align-items:stretch;
+  gap:12px;
+  max-width:420px;
+  padding:20px 22px
+}
+.approved-notice-title {
+  font-size:15px;
+  font-weight:700
+}
+.approved-notice-text {
+  margin:0;
+  font-size:13px;
+  font-weight:500;
+  line-height:1.5
+}
+.approved-notice-close {
+  align-self:flex-end;
+  padding:8px 18px;
+  border:1px solid var(--artifact-border);
+  border-radius:6px;
+  background:var(--artifact-forest);
+  color:#fff;
+  font-size:13px;
+  font-weight:700;
+  cursor:pointer
+}
 .build-lock-spinner {
   width:16px;
   height:16px;
@@ -2791,7 +2822,14 @@ All emails in this brief have been confirmed and pushed to the brief.
 <div class="build-lock-overlay" data-build-lock hidden>
 <div class="build-lock-message">
 <span class="build-lock-spinner" aria-hidden="true"></span>
-Building email…
+<span data-build-lock-text aria-live="polite">Building email…</span>
+</div>
+</div>
+<div class="build-lock-overlay show" data-approved-notice hidden>
+<div class="build-lock-message approved-notice-box" role="dialog" aria-modal="true" aria-labelledby="approved-notice-title">
+<div class="approved-notice-title" id="approved-notice-title">Email approved</div>
+<p class="approved-notice-text">Your email is approved and the email asset is built. Next, update the audience in your email brief, then approve the brief under your tactic.</p>
+<button type="button" class="approved-notice-close" data-approved-notice-close>Close</button>
 </div>
 </div>
 </div>
@@ -5151,7 +5189,7 @@ Building email…
 
       const stage = emailStage(email);
       if (stage === 4) {
-        return { section: null, text: 'All done, this email is approved', tone: 'done' };
+        return { section: null, text: 'Update audience in your brief and approve it in your tactic', tone: 'next' };
       }
       if (stage === 3) {
         return { section: 'approve', text: 'Approve this email', tone: 'next' };
@@ -5350,9 +5388,18 @@ Building email…
       updateListStatuses();
 
       const buildLockOverlay = document.querySelector('[data-build-lock]');
-      buildLockOverlay.hidden = !buildInFlight;
-      buildLockOverlay.classList.toggle('show', buildInFlight);
-      appShell.toggleAttribute('inert', buildInFlight);
+      // One translucent lock for every blocking action; the message says which one is running.
+      const lockMessage = buildInFlight
+        ? 'Building email…'
+        : confirmInFlight
+          ? 'Pushing content to your tactic brief…'
+          : emails.some((item) => item.saveStatus === 'saving')
+            ? 'Saving changes…'
+            : '';
+      document.querySelector('[data-build-lock-text]').textContent = lockMessage || 'Building email…';
+      buildLockOverlay.hidden = !lockMessage;
+      buildLockOverlay.classList.toggle('show', Boolean(lockMessage));
+      appShell.toggleAttribute('inert', Boolean(lockMessage));
 
       // Once approved, the content preview and email settings are locked with a translucent cover so no
       // further edits can be made. A built (not yet approved) email stays editable: editing it makes it
@@ -7039,6 +7086,8 @@ Building email…
 
     function openApprovalPopover(fromFab = false) {
       initApprovalPopover();
+      // The dialog is shared by every email, so always open it with a working Approve button.
+      document.querySelector('[data-approval-confirm]').disabled = approvalInFlight;
       dockApprovalPopover(fromFab);
       const trigger = document.querySelector('[data-approve]');
       const popover = document.querySelector('[data-approval-popover]');
@@ -7072,6 +7121,23 @@ Building email…
     // their own local time — the due date itself is unchanged, only the time-of-day/zone is new here).
     // On success, records the email's state as "approved" via Email_Brief_Schema and locks it from
     // further editing.
+    // Information-only notice after a successful approval of a pre-event / post-event email: the asset
+    // is built, but the requester still has to fill the audience in the brief and approve it in the tactic.
+    function showApprovedNotice() {
+      const notice = document.querySelector('[data-approved-notice]');
+      notice.hidden = false;
+      notice.querySelector('[data-approved-notice-close]').focus();
+    }
+    function hideApprovedNotice() {
+      document.querySelector('[data-approved-notice]').hidden = true;
+    }
+    document.querySelector('[data-approved-notice-close]').addEventListener('click', hideApprovedNotice);
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !document.querySelector('[data-approved-notice]').hidden) {
+        hideApprovedNotice();
+      }
+    });
+
     async function submitApproval(schedule) {
       if (approvalInFlight) {
         return;
@@ -7113,8 +7179,12 @@ Building email…
 
         email.approved = true;
         approvalInFlight = false;
+        document.querySelector('[data-approval-confirm]').disabled = false;
         closeApprovalPopover();
         render();
+        if (['pre-event', 'post-event'].includes(email.businessFamily)) {
+          showApprovedNotice();
+        }
 
         saveEmailState(email, 'approved').catch((saveError) => {
           console.error('Failed to record approved state for', email.id, saveError);

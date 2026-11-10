@@ -1,6 +1,6 @@
 # Email Automation
 
-This repository contains three Workato MCP apps that support the email campaign workflow. Tactic Selection and Brief Builder are currently **v1**. Email Studio is **v2.1**.
+This repository contains three Workato MCP apps that support the email campaign workflow. Tactic Selection and Brief Builder are currently **v1**. Email Studio is **v2.2**.
 
 ## Apps
 
@@ -38,15 +38,31 @@ These are MCP apps intended to run inside their host environment, not standalone
 | --- | --- | --- |
 | Tactic Selection | v1 | Initial release. |
 | Brief Builder | v1 | Initial release. |
-| Email Studio | v2.1 | New send date rules per email family. See the changelog below. |
+| Email Studio | v2.2 | Saving and pushing overlays, approval notice, approval button fix. See the changelog below. |
 
-When Sandbox changes are promoted to Production, bump the version here and add an entry to the app's changelog. The previous Production file is kept in `Production/archive/` (`email_studio_v1.html`, `email_studio_v2.html`).
+When Sandbox changes are promoted to Production, bump the version here and add an entry to the app's changelog. Production keeps a single file; earlier versions live in the git history. Put the release date under each changelog entry.
 
 ## Email Studio Changelog
 
+### v2.2
+
+Released 2026-11-10. Promoted from Sandbox to Production. Production is now identical to Sandbox and holds a single file (the archive folder was removed).
+
+**Blocking overlays**
+- Saving now shows the same translucent overlay as Build, reading "Saving changes…". It also covers the save that runs when a task is selected or created. Nothing underneath can be clicked while it is showing.
+- Push to brief shows the overlay with "Pushing content to your tactic brief…".
+- Build keeps "Building email…".
+
+**After approval**
+- Once a pre-event or post-event email is approved successfully, a notice appears saying the email asset is built and the requester still needs to update the audience in the brief and approve the brief under the tactic. It has a Close button (Esc also closes it). Reminder and confirmation-family emails do not get it.
+- The progress bar's next-step line for an approved email now reads "Next: Update audience in your brief and approve it in your tactic" (it used to say "All done, this email is approved").
+
+**Bug fix**
+- After approving one email, the Approve button inside the approval dialog stayed disabled for every other email until the app was reloaded. The dialog is shared by all emails and its button was only re-enabled after a failed approval. It is now re-enabled after a successful one and whenever the dialog opens.
+
 ### v2.1
 
-Promoted from Sandbox to Production. The v2 file is archived at `Email Studio/Production/archive/email_studio_v2.html`.
+Released 2026-11-10. Promoted from Sandbox to Production.
 
 **Send date rules**
 - Post-event emails (registrant, attendee, no-show) and reminder emails (all `reminder_*` types): the send date must be at least 3 days from today (the next two days are blocked) and cannot fall on a Saturday or Sunday.
@@ -57,7 +73,7 @@ Promoted from Sandbox to Production. The v2 file is archived at `Email Studio/Pr
 
 ### v2
 
-Promoted from Sandbox to Production. Production is now identical to Sandbox. The v1 file is kept at `Email Studio/Production/archive/email_studio_v1.html`.
+Released 2026-11-10. Promoted from Sandbox to Production. Production is now identical to Sandbox.
 
 **Layout and navigation**
 - The app is now a fixed-height panel (max width 760px) that scrolls inside itself. `fitStudioHeight()` sizes it from the progress bar, template and layout box, and email preview.
@@ -98,4 +114,4 @@ Promoted from Sandbox to Production. Production is now identical to Sandbox. The
 
 ### v1
 
-Initial release. Sidebar of emails, per-email header, side-by-side preview and settings, popup rich-text editor, and an action row with Save, Push to Brief, Build Email and Approve.
+Released 2026-11-02. Initial release. Sidebar of emails, per-email header, side-by-side preview and settings, popup rich-text editor, and an action row with Save, Push to Brief, Build Email and Approve.
