@@ -1,0 +1,1791 @@
+<!--
+  Email Brief Builder
+  ====================
+  An MCP "app" (rendered as an artifact, not a hosted web page) that collects the
+  details needed to brief an email-copy generation skill for a marketing tactic.
+
+  Code layout — two <script> blocks, deliberately split:
+  1. The first <script> (classic, non-module) owns the DOM: form state, the partner/
+     optional-field toggles, the per-field AI-suggestion-option engine (the 1/2/3
+     pickers), payload collection, the outgoing-prompt builder, the Confirm/Reset
+     button handlers, and the driver.js help walkthrough. It has no network access
+     of its own — it exposes a few functions on `window` (see below) so the module
+     script can drive the DOM without the two scripts needing a shared module graph.
+  2. The second <script type="module"> imports the MCP App SDK, owns the connection
+     to the Workato MCP server (`app.connect()`), and makes every `app.callServerTool`
+     call. It's a module purely so it can use a static `import`; everything it needs
+     from script 1 (and vice versa) crosses the window-global bridge below, not JS
+     module exports.
+
+  window-global bridge between the two scripts:
+  - Script 1 → window: `revealPrefilledApp`, `applyGeneratedSuggestions`,
+    `extractWorkatoLanguageEntries`, `enhanceTextareaWithAI`,
+    `__workatoSuggestionState`, `__workatoLanguageState` (debug inspection only).
+  - Script 2 → window: `app` (the MCP App instance; script 1's Confirm handler calls
+    `window.app.sendMessage`), `__workatoToolPayload` / `__workatoToolState` (the raw
+    tactic facts and derived partner/CTA defaults, read back by script 1's Reset).
+
+  End-to-end flow:
+  1. The tactic link arrives either via `app.ontoolinput` (the arguments the host's
+     tool call launched this app with — the primary path) or, as a fallback, from
+     this page's own URL query string. Whichever resolves first calls `startLoad()`.
+  2. `loadTacticBrief()` calls `Email_Brief_Builder` once to validate the link
+     (`flag`: tactic exists; `sub_task`: it has email sub-tasks). Either check failing
+     shows a terminal "unsupported tactic" message and stops here.
+  3. `pollForTacticBrief()` then calls `Email_Studio_Utilities` (`process:
+     "build_email_brief"`) repeatedly — it can return before its AI generation is
+     done, so an empty-content response isn't itself a failure. It keeps retrying
+     every `BRIEF_POLL_INTERVAL_MS` until either real content arrives, the tool
+     reports `flag: false` + `valid_tactic: false` on the final attempt (earlier
+     false/false responses are treated as "still generating"), or
+     `BRIEF_POLL_MAX_ATTEMPTS` is exhausted.
+  4. A successful response goes through `applyWorkatoPayload()`, which merges tactic
+     facts and AI-generated copy suggestions into the DOM (via the script-1 globals
+     above) and reveals the form.
+  5. The requester flips through the three generated options per field, edits text
+     directly, toggles optional sections, and can rewrite any field with the
+     "Enhance with AI" button (`Email_Studio_Utilities`, `process: "enhance_with_ai"`).
+  6. "Confirm" validates required fields, assembles everything into a single
+     structured prompt (tactic facts + requester-selected brief details +
+     instructions not to invent facts) via `buildClaudeCommand()`, and sends it to
+     the chat via `window.app.sendMessage` so the next step (the Tactic Email
+     Composer skill) can draft the actual email copy.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+ <meta charset="UTF-8" />
+ <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+ <meta name="glean-artifact-type" content="web-design" />
+ <title>Email Brief Builder</title>
+ <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.css" />
+ <style>
+ :root {
+ --artifact-slate: #001E2B;
+ --artifact-white: #FFFFFF;
+ --artifact-spring: #00ED64;
+ --artifact-forest: #00684A;
+ --artifact-evergreen: #023430;
+ --artifact-mist: #E3FCF7;
+ --artifact-lavender: #F9EBFF;
+ --artifact-clear-blue: #006EFF;
+ --artifact-ink: var(--artifact-slate);
+ --artifact-muted: #557078;
+ --artifact-line: #D8E4E4;
+ --artifact-surface: #F6FAF9;
+ --artifact-surface-strong: #EDF5F3;
+ --artifact-focus: rgba(0, 237, 100, 0.28);
+ --artifact-shadow: 0 8px 22px rgba(0, 30, 43, 0.07);
+ --artifact-radius: 12px;
+ }
+
+ * { box-sizing: border-box; }
+ html { background: var(--artifact-surface); }
+ body {
+ margin: 0;
+ color: var(--artifact-ink);
+ background: var(--artifact-surface);
+ font-family: Figtree, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+ font-size: 14px;
+ line-height: 1.45;
+ }
+
+ .shell { max-width: 1060px; margin: 0 auto; padding: 20px 22px 34px; display: flex; flex-direction: column; }
+ .prefill-pending .tactic-row,
+ .prefill-pending > .section,
+ .prefill-pending > .footer,
+ .prefill-pending #reset-brief,
+ .prefill-pending .language-picker,
+ .prefill-pending .help-tour-wrap { display: none; }
+
+ .utility-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+ .help-tour-wrap { position: relative; display: inline-flex; }
+
+ .help-tour-button {
+ position: relative;
+ z-index: 1;
+ width: 28px;
+ height: 28px;
+ border-radius: 50%;
+ border: 1px solid var(--artifact-forest);
+ background: var(--artifact-white);
+ color: var(--artifact-forest);
+ font: inherit;
+ font-size: 12px;
+ font-weight: 900;
+ display: grid;
+ place-items: center;
+ cursor: pointer;
+ box-shadow: var(--artifact-shadow);
+ transition: transform .16s ease, background .16s ease, border-color .16s ease;
+ }
+ .help-tour-button:hover, .help-tour-button:focus-visible { background: var(--artifact-mist); border-color: var(--artifact-spring); transform: translateY(-1px); }
+ .help-tour-button:focus-visible { outline: 3px solid var(--artifact-clear-blue); outline-offset: 2px; }
+
+ .help-tour-hint {
+ position: absolute;
+ top: calc(100% + 10px);
+ right: 0;
+ z-index: 39;
+ max-width: 180px;
+ padding: 7px 11px;
+ border-radius: 8px;
+ color: var(--artifact-white);
+ background: var(--artifact-slate);
+ font-size: 11px;
+ font-weight: 700;
+ line-height: 1.3;
+ text-align: right;
+ box-shadow: var(--artifact-shadow);
+ pointer-events: none;
+ animation: help-hint-nudge 1.6s ease-in-out 1s 3;
+ }
+ .help-tour-hint[hidden] { display: none; }
+ @keyframes help-hint-nudge {
+ 0%, 100% { opacity: .95; transform: translateX(0); }
+ 50% { opacity: .95; transform: translateX(-4px); }
+ }
+
+ /* driver.js walkthrough theming */
+ .driver-popover {
+ background-color: var(--artifact-white);
+ color: var(--artifact-ink);
+ border: 1px solid var(--artifact-line);
+ border-radius: var(--artifact-radius);
+ box-shadow: var(--artifact-shadow);
+ padding: 16px;
+ }
+ .driver-popover * { font-family: Figtree, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+ .driver-popover-title { color: var(--artifact-evergreen); font-size: 15px; font-weight: 800; }
+ .driver-popover-description { color: var(--artifact-muted); font-size: 13px; line-height: 1.5; }
+ .driver-popover-close-btn { color: var(--artifact-muted); font-weight: 400; }
+ .driver-popover-close-btn:hover, .driver-popover-close-btn:focus { color: var(--artifact-evergreen); }
+ .driver-popover-progress-text { color: var(--artifact-muted); font-size: 11px; font-weight: 700; }
+ .driver-popover-footer button {
+ background: var(--artifact-surface-strong);
+ color: var(--artifact-evergreen);
+ border: 1px solid var(--artifact-line);
+ border-radius: 7px;
+ font-weight: 800;
+ text-shadow: none;
+ padding: 6px 11px;
+ }
+ .driver-popover-footer button:hover, .driver-popover-footer button:focus { background: var(--artifact-mist); }
+ .driver-popover-footer .driver-popover-btn-disabled { opacity: .5; }
+ .driver-popover-footer button.driver-popover-next-btn {
+ background: var(--artifact-spring);
+ color: var(--artifact-slate);
+ border-color: var(--artifact-spring);
+ }
+ .driver-popover-footer button.driver-popover-next-btn:hover, .driver-popover-footer button.driver-popover-next-btn:focus {
+ background: var(--artifact-forest);
+ color: var(--artifact-white);
+ border-color: var(--artifact-forest);
+ }
+
+ .prefill-loading {
+ margin-top: 14px;
+ padding: 28px 24px;
+ color: var(--artifact-muted);
+ background: var(--artifact-white);
+ border: 1px solid var(--artifact-line);
+ border-radius: var(--artifact-radius);
+ box-shadow: var(--artifact-shadow);
+ text-align: center;
+ }
+ .prefill-loading[hidden] { display: none; }
+ .prefill-loading-title { margin: 0; color: var(--artifact-evergreen); font-size: 16px; font-weight: 800; }
+ .prefill-loading-copy { margin: 7px auto 0; max-width: 520px; font-size: 13px; }
+ .prefill-loading-copy[hidden] { display: none; }
+ .prefill-loading-indicator { display: inline-flex; gap: 5px; margin-bottom: 13px; }
+ .prefill-loading-indicator[hidden] { display: none; }
+ .prefill-loading.is-unsupported { border-color: var(--artifact-line); }
+ .prefill-loading.is-unsupported .prefill-loading-title { color: var(--artifact-ink); }
+ .prefill-loading-icon { display: none; width: 40px; height: 40px; margin: 0 auto 13px; border-radius: 50%; align-items: center; justify-content: center; color: var(--artifact-forest); background: var(--artifact-surface-strong); border: 1px solid var(--artifact-line); font-size: 18px; font-weight: 800; font-style: italic; font-family: Georgia, "Times New Roman", serif; }
+ .prefill-loading.is-unsupported .prefill-loading-icon { display: flex; }
+ .prefill-loading-indicator span { width: 7px; height: 7px; border-radius: 50%; background: var(--artifact-spring); animation: prefill-pulse 1.1s ease-in-out infinite; }
+ .prefill-loading-indicator span:nth-child(2) { animation-delay: .14s; }
+ .prefill-loading-indicator span:nth-child(3) { animation-delay: .28s; }
+ @keyframes prefill-pulse { 0%, 80%, 100% { opacity: .3; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-4px); } }
+ .topbar {
+ display: flex;
+ align-items: center;
+ justify-content: space-between;
+ gap: 18px;
+ padding: 18px 20px;
+ color: var(--artifact-ink);
+ background: var(--artifact-white);
+ border: 1px solid var(--artifact-line);
+ border-radius: var(--artifact-radius);
+ box-shadow: var(--artifact-shadow);
+ }
+ .eyebrow {
+ margin: 0 0 4px;
+ color: var(--artifact-spring);
+ font-size: 11px;
+ font-weight: 800;
+ letter-spacing: .12em;
+ text-transform: uppercase;
+ }
+ h1 { margin: 0; font-size: clamp(24px, 3vw, 34px); line-height: 1.05; letter-spacing: -.035em; white-space: nowrap; }
+ .topbar > div:first-child { flex: 0 0 auto; min-width: max-content; }
+ .subtitle { margin: 8px 0 0; color: var(--artifact-muted); max-width: 600px; }
+ .context-pill {
+ flex: 0 0 auto;
+ border: 1px solid var(--artifact-forest);
+ border-radius: 999px;
+ padding: 7px 10px;
+ color: var(--artifact-spring);
+ font-size: 12px;
+ font-weight: 800;
+ white-space: nowrap;
+ }
+
+ .tactic-row {
+ display: grid;
+ grid-template-columns: 120px minmax(0, 1fr);
+ gap: 10px;
+ align-items: center;
+ margin: 14px 0;
+ padding: 10px 12px;
+ background: var(--artifact-white);
+ border: 1px solid var(--artifact-line);
+ border-radius: var(--artifact-radius);
+ }
+ .tactic-label { font-size: 12px; font-weight: 800; color: var(--artifact-evergreen); }
+ .tactic-input { background: var(--artifact-surface); color: var(--artifact-muted); }
+ .tactic-title-value { min-width: 0; padding: 9px 11px; border: 1px solid var(--artifact-line); border-radius: 9px; overflow-wrap: anywhere; }
+ .tool-populated { background: var(--artifact-surface); }
+ .topbar-actions { display: flex; align-items: flex-end; justify-content: flex-end; gap: 10px; flex: 0 0 auto; margin-left: auto; flex-wrap: nowrap; }
+ .language-pickers { display: flex; align-items: flex-end; gap: 10px; flex: 0 0 auto; }
+ .language-picker { display: flex; flex-direction: column; gap: 3px; min-width: 156px; }
+ .language-picker label { margin: 0; color: var(--artifact-evergreen); font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+ .language-picker select { min-height: 38px; padding: 8px 28px 8px 10px; }
+ .language-picker select:disabled { opacity: .68; cursor: wait; }
+
+ [data-glean-id="brief-header"] { order: 0; }
+ [data-glean-id="tactic-title-section"] { order: 1; }
+ [data-glean-id="event-details-section"] { order: 2; }
+ [data-glean-id="objective-section"] { order: 3; }
+ [data-glean-id="partner-section"] { order: 4; }
+ [data-glean-id="optional-details-section"] { order: 5; }
+ [data-glean-id="brief-footer"] { order: 6; }
+
+ .section {
+ margin-top: 14px;
+ padding: 16px;
+ background: var(--artifact-white);
+ border: 1px solid var(--artifact-line);
+ border-radius: var(--artifact-radius);
+ box-shadow: var(--artifact-shadow);
+ }
+ .section-head {
+ display: flex;
+ justify-content: space-between;
+ align-items: baseline;
+ gap: 12px;
+ margin-bottom: 12px;
+ }
+ h2 { margin: 0; font-size: 16px; letter-spacing: -.015em; }
+ .section-note { color: var(--artifact-muted); font-size: 12px; }
+ .grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 12px; }
+ .span-12 { grid-column: span 12; }
+ .span-8 { grid-column: span 8; }
+ .span-6 { grid-column: span 6; }
+ .span-4 { grid-column: span 4; }
+ .span-3 { grid-column: span 3; }
+
+ .field { min-width: 0; }
+ .conditional-fields { display: contents; }
+ [hidden] { display: none !important; }
+ label {
+ display: block;
+ margin: 0 0 5px;
+ color: var(--artifact-evergreen);
+ font-size: 12px;
+ font-weight: 800;
+ }
+ .label-row { display: flex; align-items: center; justify-content: flex-start; gap: 10px; margin-bottom: 5px; }
+ .label-row > label:first-child { margin-bottom: 0; }
+ .optional { color: var(--artifact-muted); font-weight: 600; }
+ .required-mark { color: #D92D20; margin-left: 2px; }
+ input, textarea, select {
+ width: 100%;
+ border: 1px solid var(--artifact-line);
+ border-radius: 9px;
+ background: var(--artifact-white);
+ color: var(--artifact-ink);
+ font: inherit;
+ outline: none;
+ transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
+ }
+ input, select { height: 39px; padding: 0 11px; }
+ textarea { min-height: 88px; padding: 10px 11px; resize: vertical; }
+ textarea.tall { min-height: 112px; }
+ input::placeholder, textarea::placeholder { color: #809397; }
+ input:focus::placeholder, textarea:focus::placeholder { color: transparent; }
+ input:focus, textarea:focus, select:focus {
+ border-color: var(--artifact-forest);
+ box-shadow: 0 0 0 3px var(--artifact-focus);
+ background: var(--artifact-mist);
+ }
+ select:required:invalid { color: #809397; }
+ select option { color: var(--artifact-ink); }
+ .hint { margin: 5px 0 0; color: var(--artifact-muted); font-size: 11px; }
+ .textarea-shell { position: relative; }
+ .input-shell { position: relative; }
+ .input-shell input { padding-right: 46px; }
+ .suggestion-controls { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 23px; margin-top: 6px; }
+ .suggestion-type { min-width: 0; overflow: hidden; color: var(--artifact-forest); font-size: 10px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+ .suggestion-nav { display: flex; flex: 0 0 auto; gap: 4px; }
+ .suggestion-nav button { width: 22px; height: 20px; padding: 0; border: 1px solid var(--artifact-line); border-radius: 5px; color: var(--artifact-evergreen); background: var(--artifact-white); font: inherit; font-size: 10px; font-weight: 850; cursor: pointer; }
+ .suggestion-nav button:hover, .suggestion-nav button.is-selected { border-color: var(--artifact-forest); color: var(--artifact-white); background: var(--artifact-forest); }
+ .suggestion-nav button:focus-visible { outline: 3px solid var(--artifact-clear-blue); outline-offset: 2px; }
+ .textarea-shell.is-exiting-forward, .input-shell.is-exiting-forward { animation: brief-suggestion-exit-left .12s ease-in both; }
+ .textarea-shell.is-exiting-backward, .input-shell.is-exiting-backward { animation: brief-suggestion-exit-right .12s ease-in both; }
+ .textarea-shell.is-entering-forward, .input-shell.is-entering-forward { animation: brief-suggestion-enter-right .18s ease-out both; }
+ .textarea-shell.is-entering-backward, .input-shell.is-entering-backward { animation: brief-suggestion-enter-left .18s ease-out both; }
+ @keyframes brief-suggestion-exit-left { to { opacity: 0; transform: translateX(-14px); } }
+ @keyframes brief-suggestion-exit-right { to { opacity: 0; transform: translateX(14px); } }
+ @keyframes brief-suggestion-enter-right { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: translateX(0); } }
+ @keyframes brief-suggestion-enter-left { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: translateX(0); } }
+ .textarea-shell textarea { padding-right: 46px; padding-bottom: 38px; }
+ .textarea-meta { display: flex; align-items: center; justify-content: flex-end; margin-top: 6px; }
+ .char-count { color: var(--artifact-muted); font-size: 11px; }
+ .ai-button { position: absolute; right: 8px; bottom: 8px; z-index: 1; display: grid; place-items: center; width: 27px; height: 27px; padding: 0; border: 1px solid var(--artifact-line); border-radius: 7px; color: var(--artifact-forest); background: var(--artifact-surface-strong); font: inherit; font-size: 13px; font-weight: 900; cursor: pointer; transition: background .16s ease, border-color .16s ease, transform .16s ease; }
+ .ai-button::after { content: attr(title); position: absolute; right: 0; bottom: calc(100% + 8px); width: max-content; padding: 5px 7px; border-radius: 6px; color: var(--artifact-white); background: var(--artifact-slate); font-size: 11px; font-weight: 700; opacity: 0; pointer-events: none; transform: translateY(3px); transition: opacity .14s ease, transform .14s ease; }
+ .ai-button:hover, .ai-button:focus-visible { background: var(--artifact-mist); border-color: var(--artifact-spring); transform: translateY(-1px); }
+ .ai-button:hover::after, .ai-button:focus-visible::after { opacity: 1; transform: translateY(0); }
+ .ai-button:focus-visible { outline: 3px solid var(--artifact-clear-blue); outline-offset: 2px; }
+ .ai-button:disabled { opacity: .55; cursor: wait; transform: none; }
+ .textarea-shell.is-enhancing textarea { background: var(--artifact-mist); cursor: wait; }
+ .textarea-shell.is-enhancing::after {
+ content: 'Enhancing…';
+ position: absolute;
+ right: 43px;
+ bottom: 10px;
+ z-index: 2;
+ padding: 4px 7px;
+ border: 1px solid var(--artifact-line);
+ border-radius: 999px;
+ color: var(--artifact-forest);
+ background: var(--artifact-white);
+ font-size: 11px;
+ font-weight: 800;
+ pointer-events: none;
+ }
+
+ .field-toggle { display: inline-flex; align-items: center; gap: 6px; margin: 0; color: var(--artifact-muted); font-size: 11px; font-weight: 800; cursor: pointer; white-space: nowrap; }
+ .field-toggle input { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+ .toggle-track { position: relative; display: inline-block; width: 32px; height: 18px; border: 1px solid var(--artifact-line); border-radius: 999px; background: var(--artifact-surface-strong); transition: background .16s ease, border-color .16s ease; }
+ .toggle-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--artifact-muted); transition: transform .16s ease, background .16s ease; }
+ .field-toggle input:checked + .toggle-track { border-color: var(--artifact-forest); background: var(--artifact-forest); }
+ .field-toggle input:checked + .toggle-track::after { background: var(--artifact-white); transform: translateX(14px); }
+ .field-toggle input:focus-visible + .toggle-track { outline: 3px solid var(--artifact-clear-blue); outline-offset: 2px; }
+ .optional-input { margin-top: 2px; }
+
+ .footer {
+ display: flex;
+ justify-content: space-between;
+ align-items: center;
+ gap: 14px;
+ margin-top: 14px;
+ padding: 12px 2px 0;
+ color: var(--artifact-muted);
+ font-size: 12px;
+ }
+ .button {
+ border: 0;
+ border-radius: 9px;
+ padding: 10px 14px;
+ color: var(--artifact-slate);
+ background: var(--artifact-spring);
+ font: inherit;
+ font-weight: 850;
+ cursor: pointer;
+ transition: transform .16s ease, background .16s ease;
+ }
+ .button:hover { background: var(--artifact-mist); transform: translateY(-1px); }
+ .button:focus-visible { outline: 3px solid var(--artifact-clear-blue); outline-offset: 2px; }
+ .button:disabled { opacity: .58; cursor: not-allowed; transform: none; }
+ .button.is-processing { cursor: wait; }
+ .button.is-processing::before {
+ content: '';
+ width: 12px;
+ height: 12px;
+ border: 2px solid currentColor;
+ border-right-color: transparent;
+ border-radius: 50%;
+ display: inline-block;
+ margin-right: 7px;
+ vertical-align: -2px;
+ animation: command-spin .75s linear infinite;
+ }
+ @keyframes command-spin { to { transform: rotate(360deg); } }
+ .button.secondary { color: var(--artifact-evergreen); background: var(--artifact-surface-strong); border: 1px solid var(--artifact-line); }
+ .button.secondary:hover { background: var(--artifact-mist); }
+ .saved { color: var(--artifact-forest); font-weight: 800; }
+
+ .copy-prompt-action { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+ .copy-prompt-button { height: 42px; min-height: 42px; padding: 0 18px; border: 1px solid var(--artifact-spring); border-radius: 10px; color: var(--artifact-slate); background: var(--artifact-spring); font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+ .copy-prompt-button:hover:not(:disabled) { color: var(--artifact-white); background: var(--artifact-forest); border-color: var(--artifact-forest); }
+ .copy-prompt-button:disabled { opacity: .58; cursor: not-allowed; }
+ .copy-prompt-hint { display: flex; align-items: center; gap: 5px; color: var(--artifact-muted); font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
+ .copy-prompt-hint-arrow { display: inline-block; animation: paste-nudge 1.25s ease-in-out infinite; }
+ .copy-prompt-hint.is-confirmed { color: var(--artifact-forest); }
+ .copy-prompt-hint.is-confirmed .copy-prompt-hint-arrow { animation: none; }
+ @keyframes paste-nudge { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(4px); } }
+
+ @media (max-width: 760px) {
+ .shell { padding: 12px 12px 24px; }
+ .topbar { padding: 16px; }
+ .topbar-actions { width: auto; justify-content: flex-end; }
+ .context-pill { display: none; }
+ .tactic-row { grid-template-columns: 1fr; gap: 6px; }
+ .span-8, .span-6, .span-4, .span-3 { grid-column: span 12; }
+ .section { padding: 13px; }
+ .footer { align-items: flex-start; flex-direction: column; }
+ }
+
+ @media (max-width: 520px) {
+ .topbar { align-items: stretch; flex-direction: column; }
+ .topbar-actions { width: 100%; justify-content: space-between; }
+ }
+
+ @media (prefers-reduced-motion: reduce) {
+ *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
+ }
+
+ @media print {
+ @page { size: auto !important; }
+ body { background: var(--artifact-white); }
+ .shell { max-width: 100%; padding: 0; }
+ .topbar { box-shadow: none; }
+ .section { box-shadow: none; break-inside: avoid; }
+ .button, .ai-button, .copy-prompt-action, .field-toggle, .help-tour-wrap { display: none; }
+ }
+ </style>
+</head>
+<body>
+ <script src="https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.js.iife.js"></script>
+ <main class="shell prefill-pending" data-glean-id="email-copy-brief-app" aria-busy="true">
+ <header class="topbar" data-glean-id="brief-header">
+ <div>
+ <h1>Email Brief Builder</h1>
+ </div>
+ <div class="topbar-actions">
+ <div class="language-pickers" data-glean-id="language-picker-group">
+ <div class="language-picker">
+ <label for="email-language-select">Email language</label>
+ <select id="email-language-select" aria-label="Email language">
+ <option value="en">English</option>
+ </select>
+ </div>
+ <div class="language-picker">
+ <label for="language-select">Input language</label>
+ <select id="language-select" aria-label="Input language" disabled>
+ <option value="en">English</option>
+ </select>
+ </div>
+ </div>
+ <div class="utility-actions">
+ <button class="button secondary" id="reset-brief" type="button">Reset</button>
+ <div class="help-tour-wrap">
+ <button type="button" id="help-tour-button" class="help-tour-button" data-glean-id="help-tour-button" aria-label="Open help walkthrough">
+ <span aria-hidden="true">?</span>
+ </button>
+ <div id="help-tour-hint" class="help-tour-hint" data-glean-id="help-tour-hint" role="status">
+ <span>New here? Click for a quick walkthrough</span>
+ </div>
+ </div>
+ </div>
+ </div>
+ </header>
+
+ <div id="prefill-loading" class="prefill-loading" data-glean-id="prefill-loading" role="status" aria-live="polite">
+ <div class="prefill-loading-icon" aria-hidden="true">i</div>
+ <div id="prefill-loading-indicator" class="prefill-loading-indicator" aria-hidden="true"><span></span><span></span><span></span></div>
+ <p id="prefill-loading-title" class="prefill-loading-title">Preparing tactic details</p>
+ <p id="prefill-loading-copy" class="prefill-loading-copy" hidden></p>
+ </div>
+
+ <section class="tactic-row" data-glean-id="tactic-title-section" aria-label="Tactic title">
+ <div class="tactic-label">Tactic title</div>
+ <div id="tactic-title" class="tactic-input tactic-title-value" role="status" aria-live="polite">Waiting for tactic details…</div>
+ <input id="tactic-link" type="hidden" aria-hidden="true" />
+ </section>
+
+ <section class="section" data-glean-id="partner-section">
+ <div class="section-head">
+ <h2>Partner information</h2>
+ <span class="section-note">Show partner details only when applicable.</span>
+ </div>
+ <div class="grid">
+ <div class="field span-4" data-glean-id="partner-included-field">
+ <label for="partner-included">Include partner information? <span class="required-mark" aria-hidden="true">*</span></label>
+ <select id="partner-included" required aria-label="Include partner information">
+ <option value="" disabled selected>Select yes or no</option>
+ <option value="yes">Yes</option>
+ <option value="no">No</option>
+ </select>
+ </div>
+ <div id="partner-fields" class="conditional-fields" hidden>
+ <div class="field span-4" data-glean-id="partner-name-field">
+ <label for="partner-name">Partner name</label>
+ <input id="partner-name" type="text" placeholder="e.g., AWS" />
+ </div>
+ <div class="field span-8" data-glean-id="partner-contribution-field">
+ <label for="partner-contribution">Partner contribution</label>
+ <textarea id="partner-contribution" placeholder="Describe the partner’s role, contribution, speaker involvement, integration, or value to the initiative."></textarea>
+ </div>
+ </div>
+ </div>
+ </section>
+
+ <section class="section" data-glean-id="objective-section">
+ <div class="section-head">
+ <h2>Email action</h2>
+ <span class="section-note">Define the primary action you want recipients to take.</span>
+ </div>
+ <div class="grid">
+ <div class="field span-8" data-glean-id="cta-url-field">
+ <label for="cta-url">Primary CTA URL</label>
+ <input id="cta-url" type="url" placeholder="https://" />
+ </div>
+ </div>
+ </section>
+
+ <section class="section" data-glean-id="event-details-section">
+ <div class="section-head">
+ <h2>Event details</h2>
+ <span class="section-note">Use for both pre-event and post-event context.</span>
+ </div>
+ <div class="grid">
+ <div class="field span-12" data-glean-id="key-takeaways-field">
+ <label for="key-takeaways">Key takeaways <span class="required-mark" aria-hidden="true">*</span></label>
+ <textarea id="key-takeaways" required placeholder="What will attendees learn, see, or be able to do?"></textarea>
+ </div>
+ <div class="field span-12" data-glean-id="event-pitch-field">
+ <label for="event-pitch">Event pitch <span class="required-mark" aria-hidden="true">*</span></label>
+ <textarea id="event-pitch" class="tall" required placeholder="What makes this event relevant or worth attending? Capture the core event value proposition."></textarea>
+ </div>
+ <div class="field span-12" data-glean-id="audience-description-field">
+ <div class="label-row">
+ <label for="audience-description">Audience description <span class="optional">(optional)</span></label>
+ <label class="field-toggle" aria-label="Show audience description">
+ <input id="audience-description-toggle" type="checkbox" aria-controls="audience-description-wrap" aria-expanded="false" />
+ <span class="toggle-track" aria-hidden="true"></span>
+ <span id="audience-description-toggle-text">Show</span>
+ </label>
+ </div>
+ <div id="audience-description-wrap" class="optional-input" hidden>
+ <textarea id="audience-description" class="tall" placeholder="Describe who this email is for. Include role, industry, seniority, technical level, company type, current challenge, or relevant segment details when useful."></textarea>
+ </div>
+ </div>
+ <div class="field span-12" data-glean-id="session-details-field">
+ <div class="label-row">
+ <label for="session-details">Session details <span class="optional">(optional)</span></label>
+ <label class="field-toggle" aria-label="Show session details">
+ <input id="session-details-toggle" type="checkbox" aria-controls="session-details-wrap" aria-expanded="false" />
+ <span class="toggle-track" aria-hidden="true"></span>
+ <span id="session-details-toggle-text">Show</span>
+ </label>
+ </div>
+ <div id="session-details-wrap" class="optional-input" hidden>
+ <textarea id="session-details" placeholder="Add session title, format, agenda, or key session context."></textarea>
+ </div>
+ </div>
+ <div class="field span-12" data-glean-id="event-speakers-field">
+ <div class="label-row">
+ <label for="event-speakers">Event speakers <span class="optional">(optional)</span></label>
+ <label class="field-toggle" aria-label="Show event speakers">
+ <input id="event-speakers-toggle" type="checkbox" aria-controls="event-speakers-wrap" aria-expanded="false" />
+ <span class="toggle-track" aria-hidden="true"></span>
+ <span id="event-speakers-toggle-text">Show</span>
+ </label>
+ </div>
+ <div id="event-speakers-wrap" class="optional-input" hidden>
+ <textarea id="event-speakers" placeholder="Add any number of speakers. Include each name, title, company, and relevant details."></textarea>
+ </div>
+ </div>
+ </div>
+ </section>
+
+ <section class="section" data-glean-id="optional-details-section">
+ <div class="section-head">
+ <h2>Optional details</h2>
+ <span class="section-note">Leave blank when not applicable.</span>
+ </div>
+ <div class="grid">
+ <div class="field span-6" data-glean-id="offer-details-field">
+ <div class="label-row">
+ <label for="offer-details">Offer details <span class="optional">(optional)</span></label>
+ <label class="field-toggle" aria-label="Show offer details">
+ <input id="offer-details-toggle" type="checkbox" aria-controls="offer-details-wrap" aria-expanded="false" />
+ <span class="toggle-track" aria-hidden="true"></span>
+ <span id="offer-details-toggle-text">Show</span>
+ </label>
+ </div>
+ <div id="offer-details-wrap" class="optional-input" hidden>
+ <textarea id="offer-details" placeholder="Include offer value, eligibility, promo code, expiration, or incentive details."></textarea>
+ </div>
+ </div>
+ <div class="field span-6" data-glean-id="additional-context-field">
+ <div class="label-row">
+ <label for="additional-context">Additional marketer context <span class="optional">(optional)</span></label>
+ <label class="field-toggle" aria-label="Show additional marketer context">
+ <input id="additional-context-toggle" type="checkbox" aria-controls="additional-context-wrap" aria-expanded="false" />
+ <span class="toggle-track" aria-hidden="true"></span>
+ <span id="additional-context-toggle-text">Show</span>
+ </label>
+ </div>
+ <div id="additional-context-wrap" class="optional-input" hidden>
+ <textarea id="additional-context" placeholder="Add any tactic-specific context that the agent should know before drafting."></textarea>
+ </div>
+ </div>
+ </div>
+ </section>
+
+ <footer class="footer" data-glean-id="brief-footer">
+ <span id="payload-status" aria-live="polite"></span>
+ <div class="copy-prompt-action" data-glean-id="copy-prompt-action">
+ <button class="button copy-prompt-button" id="copy-payload" type="button" disabled aria-disabled="true">Confirm</button>
+ <div id="copy-prompt-hint" class="copy-prompt-hint" data-glean-id="paste-next-step" aria-live="polite"><span class="copy-prompt-hint-arrow" aria-hidden="true">↓</span><span id="copy-prompt-hint-text">Send message</span></div>
+ </div>
+ </footer>
+ </main>
+
+ <script>
+ // DOM-only script: owns the form, has no direct network access. The URL params read here are
+ // just the fallback tactic-link source — the module script below (app.ontoolinput) is the
+ // primary one and will overwrite `tacticInput.value` once it resolves. See the file-top comment
+ // for the full two-script architecture and the window-global bridge between them.
+ const params = new URLSearchParams(window.location.search);
+ const tacticLink = params.get('tactic_link') || params.get('permalink') || params.get('tacticLink') || params.get('tactic') || '';
+ const tacticType = params.get('tacticType') || '';
+ const tacticInput = document.getElementById('tactic-link');
+ const tacticTitleDisplay = document.getElementById('tactic-title');
+ tacticInput.value = tacticLink;
+
+ const status = document.getElementById('payload-status');
+ const languageSelect = document.getElementById('language-select');
+ const commandButton = document.getElementById('copy-payload');
+ const copyPromptHint = document.getElementById('copy-prompt-hint');
+ const copyPromptHintText = document.getElementById('copy-prompt-hint-text');
+ const audienceDescriptionToggle = document.getElementById('audience-description-toggle');
+ const offerDetailsToggle = document.getElementById('offer-details-toggle');
+ const additionalMarketerContextToggle = document.getElementById('additional-context-toggle');
+ const sessionDetailsToggle = document.getElementById('session-details-toggle');
+ const eventSpeakersToggle = document.getElementById('event-speakers-toggle');
+ let commandButtonProcessing = false;
+
+ // Hides the loading card and un-hides the form once tactic data has arrived.
+ function revealPrefilledApp() {
+ const appShell = document.querySelector('[data-glean-id="email-copy-brief-app"]');
+ const loadingState = document.getElementById('prefill-loading');
+ appShell?.classList.remove('prefill-pending');
+ appShell?.classList.add('prefill-ready');
+ appShell?.setAttribute('aria-busy', 'false');
+ if (loadingState) loadingState.hidden = true;
+ }
+ window.revealPrefilledApp = revealPrefilledApp;
+
+ // --- Partner-info field visibility --- (the module script writes partnerIncluded.value directly
+ // when the tactic has partner data; this just keeps the dependent fields in sync with it)
+ const partnerIncluded = document.getElementById('partner-included');
+ const partnerFields = document.getElementById('partner-fields');
+
+ // Shows or hides the partner name/contribution fields based on the "include partner information" answer.
+ function refreshPartnerFields() {
+ const showPartner = partnerIncluded.value === 'yes';
+ partnerFields.hidden = !showPartner;
+ if (!showPartner) {
+ document.getElementById('partner-name').value = '';
+ document.getElementById('partner-contribution').value = '';
+ }
+ }
+
+ // Syncs each optional field's visibility and Show/Hide label with its toggle checkbox.
+ function refreshOptionalFields() {
+ const optionalFields = [
+ { toggle: audienceDescriptionToggle, wrapper: document.getElementById('audience-description-wrap'), text: document.getElementById('audience-description-toggle-text') },
+ { toggle: offerDetailsToggle, wrapper: document.getElementById('offer-details-wrap'), text: document.getElementById('offer-details-toggle-text') },
+ { toggle: additionalMarketerContextToggle, wrapper: document.getElementById('additional-context-wrap'), text: document.getElementById('additional-context-toggle-text') },
+ { toggle: sessionDetailsToggle, wrapper: document.getElementById('session-details-wrap'), text: document.getElementById('session-details-toggle-text') },
+ { toggle: eventSpeakersToggle, wrapper: document.getElementById('event-speakers-wrap'), text: document.getElementById('event-speakers-toggle-text') }
+ ];
+ optionalFields.forEach(({ toggle, wrapper, text }) => {
+ const isVisible = toggle.checked;
+ wrapper.hidden = !isVisible;
+ toggle.setAttribute('aria-expanded', String(isVisible));
+ text.textContent = isVisible ? 'Hide' : 'Show';
+ });
+ }
+
+ // Wraps every textarea with an "Enhance with AI" button and a live character count.
+ function setupTextareaTools() {
+ document.querySelectorAll('textarea').forEach((textarea) => {
+ const field = textarea.closest('.field');
+ const label = field?.querySelector('label')?.textContent.replace('(optional)', '').trim() || 'this field';
+ const shell = document.createElement('div');
+ shell.className = 'textarea-shell';
+ textarea.parentNode.insertBefore(shell, textarea);
+ shell.appendChild(textarea);
+
+ const aiButton = document.createElement('button');
+ aiButton.type = 'button';
+ aiButton.className = 'ai-button';
+ aiButton.textContent = '✦';
+ aiButton.title = 'Enhance with AI';
+ aiButton.setAttribute('aria-label', 'Enhance with AI');
+ aiButton.addEventListener('click', async () => {
+ if (typeof window.enhanceTextareaWithAI === 'function') {
+ await window.enhanceTextareaWithAI(textarea, label, aiButton);
+ return;
+ }
+ status.textContent = 'AI enhancement is still connecting to Workato.';
+ status.className = '';
+ textarea.focus();
+ });
+ shell.appendChild(aiButton);
+
+ const meta = document.createElement('div');
+ meta.className = 'textarea-meta';
+ const count = document.createElement('span');
+ count.className = 'char-count';
+ const updateCount = () => { count.textContent = `${textarea.value.length} characters`; };
+ textarea.addEventListener('input', updateCount);
+ updateCount();
+ meta.appendChild(count);
+ shell.insertAdjacentElement('afterend', meta);
+ });
+ }
+
+ // --- AI suggestion-option engine ---
+ // Each AI-backed field (key takeaways, event pitch, etc.) gets 3 generated options per language.
+ // suggestionState[fieldKey] tracks: the live `options` array for the active language, the full
+ // `optionsByLanguage` map, an untouched `pristineByLanguage` clone for Reset, which option index
+ // is `selected` (remembered per language in `selectedByLanguage`), and the DOM nodes for the
+ // nav buttons / type label. The module script populates this via `window.applyGeneratedSuggestions`
+ // once build_email_brief returns content; everything below just renders/reacts to that state.
+ const suggestionOutputMap = Object.freeze({
+ key_takeaways: { domId: 'key-takeaways', outputPrefix: 'key_takeaways' },
+ event_pitch: { domId: 'event-pitch', outputPrefix: 'event_pitch' },
+ audience_description: { domId: 'audience-description', outputPrefix: 'audience_description' },
+ session_details: { domId: 'session-details', outputPrefix: 'session_details' },
+ event_speakers: { domId: 'event-speakers', outputPrefix: 'event_speaker' },
+ partner_contribution: { domId: 'partner-contribution', outputPrefix: 'partner_contribution' },
+ offer_details: { domId: 'offer-details', outputPrefix: 'offer_details' }
+ });
+ const suggestionState = Object.create(null);
+ const languageState = { languages: [], selectedCode: '', languageByCode: Object.create(null) };
+ const emailLanguageState = { selectedCode: 'en' };
+ const emailLanguageSelect = document.getElementById('email-language-select');
+ window.__workatoSuggestionState = suggestionState;
+ window.__workatoLanguageState = languageState;
+
+ // Derives a unique language code for a language entry, generating one if the tool didn't supply it.
+ function languageCodeFor(language, index, usedCodes) {
+ const requestedCode = String(language?.language_code || '').trim();
+ const baseCode = requestedCode || `language-${index + 1}`;
+ let code = baseCode;
+ let suffix = 2;
+ while (usedCodes.has(code)) code = `${baseCode}-${suffix++}`;
+ usedCodes.add(code);
+ return code;
+ }
+
+ // Checks whether a language entry is English, used to pick the default email output language.
+ function isEnglishLanguage(language) {
+ const code = String(language?.language_code || '').trim().toLowerCase();
+ const name = String(language?.language || '').trim().toLowerCase();
+ return code === 'en' || code.startsWith('en-') || name === 'english' || name.includes('basic english');
+ }
+
+ // Normalizes the tool's language payload, whichever of its possible shapes it arrives in, into a consistent array.
+ function extractLanguageEntries(data) {
+ const candidates = [
+ data && data.document && data.document.array,
+ data && data.languages,
+ data && data.document && data.document.languages,
+ data && data.array,
+ Array.isArray(data) ? data : null
+ ];
+ const rawLanguages = candidates.find(Array.isArray) || [];
+ const usedCodes = new Set();
+ return rawLanguages
+ .filter((language) => language && typeof language === 'object')
+ .map((language, index) => ({
+ ...language,
+ language: String(language.language || language.language_code || `Language ${index + 1}`).trim(),
+ language_code: languageCodeFor(language, index, usedCodes),
+ outputs: Array.isArray(language.outputs) ? language.outputs.filter((output) => output && typeof output === 'object') : []
+ }));
+ }
+ window.extractWorkatoLanguageEntries = extractLanguageEntries;
+
+ // Rebuilds the input-language and email-language dropdowns from the current language list.
+ function populateLanguageSelector() {
+ languageSelect.replaceChildren();
+ emailLanguageSelect.replaceChildren();
+ languageState.languages.forEach((language) => {
+ const option = document.createElement('option');
+ option.value = language.language_code;
+ option.textContent = language.language;
+ option.title = language.language_code;
+ languageSelect.appendChild(option);
+ const emailOption = option.cloneNode(true);
+ emailLanguageSelect.appendChild(emailOption);
+ });
+ languageSelect.value = languageState.selectedCode || '';
+ languageSelect.disabled = languageState.languages.length < 2;
+ const defaultEmailLanguage = languageState.languages.find(isEnglishLanguage) || languageState.languages[0];
+ emailLanguageState.selectedCode = defaultEmailLanguage?.language_code || 'en';
+ emailLanguageSelect.value = emailLanguageState.selectedCode;
+ emailLanguageSelect.disabled = languageState.languages.length < 2;
+ }
+
+ // Returns the language object for the currently selected input language.
+ function selectedLanguage() {
+ return languageState.languageByCode[languageState.selectedCode] || null;
+ }
+
+ // Returns the language object for the currently selected email output language.
+ function selectedEmailLanguage() {
+ return languageState.languageByCode[emailLanguageState.selectedCode] || null;
+ }
+
+ // Renders the numbered option-picker buttons for one field, for the active language, and applies the selected option.
+ function renderSuggestionOptions(fieldKey) {
+ const state = suggestionState[fieldKey];
+ if (!state) return;
+ const languageCode = languageState.selectedCode;
+ const options = state.optionsByLanguage[languageCode] || [];
+ state.options = options;
+ const rememberedIndex = Number.isInteger(state.selectedByLanguage[languageCode]) ? state.selectedByLanguage[languageCode] : 0;
+ state.selected = Math.min(Math.max(rememberedIndex, 0), Math.max(options.length - 1, 0));
+ state.nav.replaceChildren();
+ options.forEach((option, index) => {
+ const button = document.createElement('button');
+ button.type = 'button';
+ button.textContent = String(option.option || index + 1);
+ button.setAttribute('aria-label', `Use ${fieldKey.replaceAll('_', ' ')} option ${option.option || index + 1}`);
+ button.addEventListener('click', () => selectSuggestion(fieldKey, index, true));
+ state.nav.appendChild(button);
+ });
+ const hasOptions = options.some((option) => hasPromptValue(option.text));
+ state.controls.hidden = !hasOptions;
+ state.typeLabel.textContent = '';
+ if (hasOptions) selectSuggestion(fieldKey, state.selected, false);
+ else state.control.value = '';
+ }
+
+ // Re-renders every suggestion field's options for the newly active language.
+ function renderSelectedLanguageOptions() {
+ Object.keys(suggestionOutputMap).forEach(renderSuggestionOptions);
+ }
+
+ // Creates the option-picker UI (type label + nav buttons) for each AI-suggestion-backed field and tracks manual edits.
+ function setupSuggestionFields() {
+ Object.entries(suggestionOutputMap).forEach(([fieldKey, config]) => {
+ const control = document.getElementById(config.domId);
+ if (!control || suggestionState[fieldKey]) return;
+ const shell = control.closest('.textarea-shell, .input-shell') || control;
+ const controls = document.createElement('div');
+ controls.className = 'suggestion-controls';
+ controls.hidden = true;
+ controls.dataset.gleanId = `${fieldKey}-suggestions`;
+ const typeLabel = document.createElement('span');
+ typeLabel.className = 'suggestion-type';
+ const nav = document.createElement('div');
+ nav.className = 'suggestion-nav';
+ const state = { control, shell, controls, typeLabel, nav, options: [], optionsByLanguage: Object.create(null), pristineByLanguage: Object.create(null), selectedByLanguage: Object.create(null), selected: 0 };
+ suggestionState[fieldKey] = state;
+ controls.appendChild(typeLabel);
+ controls.appendChild(nav);
+ shell.insertAdjacentElement('afterend', controls);
+ control.addEventListener('input', () => {
+ const current = state.options[state.selected];
+ if (current) current.text = control.value;
+ });
+ });
+ }
+
+ // Removes any slide-in/out animation classes from a suggestion field's shell.
+ function clearSuggestionAnimation(shell) {
+ ['is-exiting-forward', 'is-exiting-backward', 'is-entering-forward', 'is-entering-backward'].forEach((className) => shell.classList.remove(className));
+ }
+
+ // Applies one generated option to a field, animating the transition and remembering the choice per language.
+ function selectSuggestion(fieldKey, index, animate = true) {
+ const state = suggestionState[fieldKey];
+ const option = state?.options[index];
+ if (!state || !option || !hasPromptValue(option.text)) return;
+ const previousIndex = state.selected;
+ const direction = index >= previousIndex ? 'forward' : 'backward';
+ state.selected = index;
+ state.selectedByLanguage[languageState.selectedCode] = index;
+ [...state.nav.querySelectorAll('button')].forEach((button, buttonIndex) => button.classList.toggle('is-selected', buttonIndex === index));
+ const apply = (withEntryAnimation) => {
+ state.control.value = option.text;
+ state.typeLabel.textContent = option.type || '';
+ state.control.dispatchEvent(new Event('input', { bubbles: true }));
+ clearSuggestionAnimation(state.shell);
+ if (withEntryAnimation) {
+ state.shell.classList.add(`is-entering-${direction}`);
+ window.setTimeout(() => clearSuggestionAnimation(state.shell), 180);
+ }
+ };
+ if (!animate) return apply(false);
+ clearSuggestionAnimation(state.shell);
+ state.shell.classList.add(`is-exiting-${direction}`);
+ window.setTimeout(() => apply(true), 120);
+ }
+
+ // Stores the generated options for a field under one language code, re-rendering if that language is currently active.
+ // Also keeps an untouched clone so a later reset can restore the original AI-generated text, even after the user edits it in place.
+ function setSuggestionOptions(fieldKey, languageCode, options) {
+ const state = suggestionState[fieldKey];
+ if (!state) return;
+ state.optionsByLanguage[languageCode] = options;
+ state.pristineByLanguage[languageCode] = options.map((option) => ({ ...option }));
+ if (!Object.prototype.hasOwnProperty.call(state.selectedByLanguage, languageCode)) state.selectedByLanguage[languageCode] = 0;
+ if (languageCode === languageState.selectedCode) renderSuggestionOptions(fieldKey);
+ }
+
+ // Parses the tool's generated-content payload (new per-language shape or legacy flat _1/_2/_3 fields) into suggestion options and populates the language pickers.
+ function applyGeneratedSuggestions(data) {
+ let languages = extractLanguageEntries(data);
+ if (!languages.length) {
+ const hasLegacyOptions = Object.values(suggestionOutputMap).some((config) => [1, 2, 3].some((index) => hasPromptValue(data?.[`${config.outputPrefix}_${index}`])));
+ if (hasLegacyOptions) {
+ languages = [{ language: 'English', language_code: 'en', outputs: [1, 2, 3].map((option) => {
+ const output = { option };
+ Object.values(suggestionOutputMap).forEach((config) => {
+ output[config.outputPrefix] = data[`${config.outputPrefix}_${option}`] || '';
+ output[`${config.outputPrefix}_type`] = data[`${config.outputPrefix}_${option}_type`] || '';
+ });
+ return output;
+ }) }];
+ }
+ }
+ if (!languages.length) return false;
+ languageState.languages = languages;
+ languageState.languageByCode = Object.fromEntries(languages.map((language) => [language.language_code, language]));
+ const localizedLanguage = languages.find((language) => !isEnglishLanguage(language));
+ const englishLanguage = languages.find(isEnglishLanguage);
+ languageState.selectedCode = (localizedLanguage || englishLanguage || languages[0]).language_code;
+ populateLanguageSelector();
+ Object.entries(suggestionOutputMap).forEach(([fieldKey, config]) => {
+ const state = suggestionState[fieldKey];
+ if (!state) return;
+ state.optionsByLanguage = Object.create(null);
+ languages.forEach((language) => {
+ const options = language.outputs.map((output, index) => ({
+ text: output[config.outputPrefix] || '',
+ type: output[`${config.outputPrefix}_type`] || '',
+ option: output.option || index + 1
+ }));
+ setSuggestionOptions(fieldKey, language.language_code, options);
+ });
+ });
+ renderSelectedLanguageOptions();
+ return true;
+ }
+
+ // Restores every AI-suggestion field to its original tool-provided text and first option, across all languages,
+ // undoing any in-place edits (the input handler above overwrites option text as the user types).
+ function restoreSuggestionFields() {
+ Object.values(suggestionState).forEach((state) => {
+ state.optionsByLanguage = Object.fromEntries(
+ Object.entries(state.pristineByLanguage).map(([code, options]) => [code, options.map((option) => ({ ...option }))])
+ );
+ state.selectedByLanguage = Object.create(null);
+ });
+ renderSelectedLanguageOptions();
+ }
+
+ // Returns the category label of the currently selected suggestion for a field.
+ function selectedSuggestionType(fieldKey) {
+ const state = suggestionState[fieldKey];
+ return state?.options[state.selected]?.type || '';
+ }
+
+ window.applyGeneratedSuggestions = applyGeneratedSuggestions;
+
+ languageSelect.addEventListener('change', () => {
+ languageState.selectedCode = languageSelect.value;
+ renderSelectedLanguageOptions();
+ const language = selectedLanguage();
+ status.textContent = language ? `Showing ${language.language} generated options.` : 'Language selected.';
+ status.className = '';
+ updateCommandButtonState();
+ });
+
+ emailLanguageSelect.addEventListener('change', () => {
+ emailLanguageState.selectedCode = emailLanguageSelect.value;
+ updateCommandButtonState();
+ });
+
+ partnerIncluded.addEventListener('change', refreshPartnerFields);
+ audienceDescriptionToggle.addEventListener('change', refreshOptionalFields);
+ offerDetailsToggle.addEventListener('change', refreshOptionalFields);
+ additionalMarketerContextToggle.addEventListener('change', refreshOptionalFields);
+ sessionDetailsToggle.addEventListener('change', refreshOptionalFields);
+ eventSpeakersToggle.addEventListener('change', refreshOptionalFields);
+ refreshPartnerFields();
+ refreshOptionalFields();
+ setupTextareaTools();
+ setupSuggestionFields();
+
+ document.querySelectorAll('input, textarea, select').forEach((field) => {
+ field.addEventListener('input', updateCommandButtonState);
+ field.addEventListener('change', updateCommandButtonState);
+ });
+ updateCommandButtonState();
+
+ // --- Outgoing prompt: field descriptions + payload assembly ---
+ // `tacticFieldDescriptions` labels the raw tool facts in window.__workatoToolPayload (set by the
+ // module script); `artifactFieldDescriptions` labels what the requester filled in on this form.
+ // `collectPayload()` reads the live DOM into one object, `buildClaudeCommand()` formats both
+ // description sets into the "Field name / Description / Value" blocks sent to chat on Confirm.
+ const tacticFieldDescriptions = Object.freeze({
+ tactic_link: 'The link to the tactic record. Preserve it exactly and do not open or inspect it.',
+ tactic_title: 'The official title of the tactic or campaign.',
+ event_link: 'The event registration or event-information link. Preserve it exactly and do not open or inspect it.',
+ event_start_date: 'The date on which the associated event begins.',
+ event_end_date: 'The date on which the associated event ends.',
+ region: 'The region in which the event is happening.',
+ vendor: 'The event vendor, such as Zoom, when provided.',
+ number_of_emails: 'The total number of pre-event emails.',
+ title: 'The official title of the tactic or campaign.',
+ tactic_event_start_date: 'The date on which the associated event begins.',
+ tactic_event_end_date: 'The date on which the associated event ends.',
+ tactic_product: 'The MongoDB product or product area associated with the tactic.',
+ co_marketing_partner_exists: 'Indicates whether a primary co-marketing partner is associated with the tactic.',
+ secondary_co_marketing_partner_exists: 'Indicates whether a secondary co-marketing partner is associated with the tactic.',
+ tactic_partner_type: 'The type or category of the primary partner associated with the tactic.',
+ tactic_co_marketing_partner: 'The primary co-marketing partner associated with the tactic.',
+ secondary_co_marketing_partner: 'The secondary co-marketing partner associated with the tactic.',
+ persona: 'The intended buyer or audience persona for the tactic.',
+ job_function: 'The job function or professional role the tactic is intended to reach.',
+ description: 'The overall description and business context for the tactic.',
+ tactic_event_link: 'The event registration or event-information link. Preserve it exactly and do not open or inspect it.',
+ webinar_vendor_details: 'Details about the webinar platform, vendor, or delivery setup, when applicable.',
+ tactic_type: 'The high-level classification of the tactic.',
+ tactic_format: 'The format of the tactic or event.'
+ });
+
+ const artifactFieldDescriptions = Object.freeze({
+ pre_event_template: 'The email structure selected for communication before the event.',
+ post_event_template: 'The email structure selected for communication after the event.',
+ template_theme: 'The visual theme selected for the email artifact.',
+ partner_included: 'Indicates whether partner information should appear in the email.',
+ partner_name: 'The partner name to use when partner information is included.',
+ partner_contribution: 'The partner’s role, contribution, speaker involvement, integration, or value to the initiative.',
+ partner_contribution_type: 'The category label for the selected generated partner-contribution option.',
+ audience_description: 'Additional detail about the intended recipients, including role, industry, seniority, technical level, company type, challenge, or segment.',
+ audience_description_type: 'The category label for the selected generated audience description option.',
+ cta_text: 'The primary call-to-action wording that should appear in the email.',
+ cta_text_type: 'The category label for the selected generated CTA option.',
+ cta_url: 'The destination link for the primary call to action. Preserve it exactly and do not open or inspect it.',
+ event_pitch: 'What makes the event relevant or worth attending; the core event value proposition.',
+ event_pitch_type: 'The category label for the selected generated event-pitch option.',
+ session_details: 'The session title, format, agenda, or key session context, when provided.',
+ session_details_type: 'The category label for the selected generated session-details option.',
+ key_takeaways: 'What attendees will learn, see, or be able to do.',
+ key_takeaways_type: 'The category label for the selected generated key-takeaways option.',
+ event_speakers: 'Speaker names, titles, companies, and relevant details, when provided.',
+ event_speakers_type: 'The category label for the selected generated event-speakers option.',
+ offer_details: 'Offer value, eligibility, promotional code, expiration, or incentive details.',
+ offer_details_type: 'The category label for the selected generated offer-details option.',
+ additional_marketer_context: 'Any other tactic-specific context, requirements, or constraints supplied by the requester.',
+ content_length: 'The requested content length: concise, standard, or expanded.',
+ email_language: 'The language in which the email content should be produced.'
+ });
+
+ // Strips template/internal-only fields from the raw tool payload before it's embedded in the outgoing prompt.
+ function buildPromptWorkatoOutput() {
+ const raw = window.__workatoToolPayload && typeof window.__workatoToolPayload === 'object' ? window.__workatoToolPayload : {};
+ const filtered = { ...raw };
+ delete filtered.document;
+ delete filtered.languages;
+ delete filtered.array;
+ delete filtered.pre_event_template;
+ delete filtered.post_event_template;
+ delete filtered.template_theme;
+ delete filtered.cta_text;
+ delete filtered.cta_text_type;
+ delete filtered.selected_language;
+ delete filtered.selected_language_code;
+ delete filtered.email_language_code;
+ Object.entries(suggestionOutputMap).forEach(([fieldKey, config]) => {
+ const optionalToggle = {
+ audience_description: audienceDescriptionToggle,
+ offer_details: offerDetailsToggle,
+ session_details: sessionDetailsToggle,
+ event_speakers: eventSpeakersToggle
+ }[fieldKey];
+ if (optionalToggle && !optionalToggle.checked) delete filtered[fieldKey];
+ });
+ if (!additionalMarketerContextToggle.checked) delete filtered.additional_marketer_context;
+ return filtered;
+ }
+
+ // Gathers all form field values, respecting each optional field's toggle state, into the payload used downstream.
+ function collectPayload() {
+ const audienceDescriptionIncluded = audienceDescriptionToggle.checked;
+ const offerDetailsIncluded = offerDetailsToggle.checked;
+ const additionalMarketerContextIncluded = additionalMarketerContextToggle.checked;
+ const sessionDetailsIncluded = sessionDetailsToggle.checked;
+ const eventSpeakersIncluded = eventSpeakersToggle.checked;
+ const selectedTypes = {
+ event_pitch_type: selectedSuggestionType('event_pitch'),
+ key_takeaways_type: selectedSuggestionType('key_takeaways'),
+ offer_details_type: offerDetailsIncluded ? selectedSuggestionType('offer_details') : '',
+ partner_contribution_type: selectedSuggestionType('partner_contribution'),
+ audience_description_type: audienceDescriptionIncluded ? selectedSuggestionType('audience_description') : '',
+ session_details_type: sessionDetailsIncluded ? selectedSuggestionType('session_details') : '',
+ event_speakers_type: eventSpeakersIncluded ? selectedSuggestionType('event_speakers') : ''
+ };
+ const activeLanguage = selectedLanguage();
+ return {
+ tactic_link: tacticInput.value,
+ tactic_title: tacticTitleDisplay.textContent === 'Waiting for tactic details…' ? '' : tacticTitleDisplay.textContent,
+ tactic_type: tacticType,
+ email_language: selectedEmailLanguage()?.language || 'English',
+ partner_included: partnerIncluded.value,
+ partner_name: document.getElementById('partner-name').value,
+ partner_contribution: document.getElementById('partner-contribution').value,
+ audience_description: audienceDescriptionIncluded ? document.getElementById('audience-description').value : '',
+ cta_url: document.getElementById('cta-url').value,
+ event_pitch: document.getElementById('event-pitch').value,
+ session_details: sessionDetailsIncluded ? document.getElementById('session-details').value : '',
+ key_takeaways: document.getElementById('key-takeaways').value,
+ event_speakers: eventSpeakersIncluded ? document.getElementById('event-speakers').value : '',
+ offer_details: offerDetailsIncluded ? document.getElementById('offer-details').value : '',
+ additional_marketer_context: additionalMarketerContextIncluded ? document.getElementById('additional-context').value : '',
+ ...selectedTypes,
+ content_length: 'Expanded',
+ workato_tool_output: buildPromptWorkatoOutput()
+ };
+ }
+
+ // Checks whether a value is non-empty and therefore worth including in the prompt.
+ function hasPromptValue(value) {
+ if (value === null || value === undefined) return false;
+ if (typeof value === 'boolean' || typeof value === 'number') return true;
+ if (Array.isArray(value)) return value.length > 0;
+ if (typeof value === 'object') return Object.keys(value).length > 0;
+ return String(value).trim() !== '';
+ }
+
+ // Renders a value as prompt-ready text, stringifying objects.
+ function formatPromptValue(value) {
+ if (typeof value === 'string') return value.trim();
+ if (typeof value === 'object') return JSON.stringify(value);
+ return String(value);
+ }
+
+ // Formats one field as a "Field name / Description / Value" block, or '' if the value is blank.
+ function formatFieldBlock(fieldName, description, value) {
+ if (!hasPromptValue(value)) return '';
+ return [
+ `Field name: ${fieldName}`,
+ `Description: ${description}`,
+ `Value: ${formatPromptValue(value)}`
+ ].join('\n');
+ }
+
+ // Formats a set of field values with their descriptions into the block list used in the prompt.
+ function formatProvidedFields(values, descriptions) {
+ return Object.entries(values)
+ .map(([fieldName, value]) => formatFieldBlock(fieldName, descriptions[fieldName] || 'Additional provided tactic or brief detail.', value))
+ .filter(Boolean)
+ .join('\n\n');
+ }
+
+ // Checks whether every required field currently passes validation.
+ function isBriefReadyForClaude() {
+ const requiredFieldsComplete = [...document.querySelectorAll('[required]')].every((field) => field.checkValidity());
+ return requiredFieldsComplete;
+ }
+
+ // Enables or disables the Confirm button based on processing state and form validity.
+ function updateCommandButtonState() {
+ const disabled = commandButtonProcessing || !isBriefReadyForClaude();
+ commandButton.disabled = disabled;
+ commandButton.setAttribute('aria-disabled', String(disabled));
+ }
+
+ // Validates required fields, focusing and reporting the first invalid one if the brief isn't ready.
+ function validateBriefForClaude() {
+ const firstInvalid = [...document.querySelectorAll('[required]')].find((field) => !field.checkValidity());
+ if (firstInvalid) {
+ firstInvalid.reportValidity();
+ const label = firstInvalid.closest('.field')?.querySelector('label')?.textContent.trim() || 'a required field';
+ status.textContent = `Complete ${label} before confirming the brief.`;
+ status.className = '';
+ firstInvalid.focus();
+ updateCommandButtonState();
+ return false;
+ }
+ updateCommandButtonState();
+ return true;
+ }
+
+ // Assembles the full structured prompt (tactic facts + requester-provided brief details + creation instructions) sent to chat.
+ function buildClaudeCommand() {
+ const payload = collectPayload();
+ const toolOutput = payload.workato_tool_output && typeof payload.workato_tool_output === 'object' ? payload.workato_tool_output : {};
+ const tacticValues = {
+ ...toolOutput,
+ tactic_link: hasPromptValue(toolOutput.tactic_link) ? toolOutput.tactic_link : payload.tactic_link
+ };
+ delete tacticValues.selected_language;
+ delete tacticValues.selected_language_code;
+ delete tacticValues.email_language_code;
+ if (!hasPromptValue(tacticValues.title) && hasPromptValue(payload.tactic_title)) tacticValues.title = payload.tactic_title;
+ if (!hasPromptValue(tacticValues.tactic_title) && hasPromptValue(payload.tactic_title)) tacticValues.tactic_title = payload.tactic_title;
+ if (!hasPromptValue(tacticValues.tactic_type) && hasPromptValue(payload.tactic_type)) tacticValues.tactic_type = payload.tactic_type;
+
+ const artifactValues = {
+ partner_included: payload.partner_included,
+ partner_name: payload.partner_name,
+ partner_contribution: payload.partner_contribution,
+ partner_contribution_type: payload.partner_contribution_type,
+ audience_description: payload.audience_description,
+ audience_description_type: payload.audience_description_type,
+ cta_url: payload.cta_url,
+ event_pitch: payload.event_pitch,
+ event_pitch_type: payload.event_pitch_type,
+ session_details: payload.session_details,
+ session_details_type: payload.session_details_type,
+ key_takeaways: payload.key_takeaways,
+ key_takeaways_type: payload.key_takeaways_type,
+ event_speakers: payload.event_speakers,
+ event_speakers_type: payload.event_speakers_type,
+ offer_details: payload.offer_details,
+ offer_details_type: payload.offer_details_type,
+ additional_marketer_context: payload.additional_marketer_context,
+ content_length: 'Expanded',
+ email_language: payload.email_language
+ };
+
+ const sections = [
+ 'Load Tactic Email Composer skill using the structured information below.',
+ 'Use the tactic details for factual grounding and the requester-provided brief details for creative direction.'
+ ];
+ const tacticFields = formatProvidedFields(tacticValues, tacticFieldDescriptions);
+ const artifactFields = formatProvidedFields(artifactValues, artifactFieldDescriptions);
+ if (tacticFields) sections.push('Tactic details', tacticFields);
+ if (artifactFields) sections.push('Requester-provided brief details', artifactFields);
+ sections.push(
+ 'Creation instructions',
+ [
+ 'Do not invent facts, dates, names, claims, relationships, URLs, or event details.',
+ 'Treat any field not shown above as unavailable information; do not fill it with assumptions.',
+ ].map((instruction) => `• ${instruction}`).join('\n'),
+ );
+ return sections.join('\n\n');
+ }
+
+ // Toggles the Confirm button's busy/processing visual state.
+ function setCommandProcessingState(isProcessing) {
+ commandButtonProcessing = isProcessing;
+ commandButton.classList.toggle('is-processing', isProcessing);
+ commandButton.setAttribute('aria-busy', String(isProcessing));
+ commandButton.textContent = isProcessing ? 'Preparing…' : 'Confirm';
+ updateCommandButtonState();
+ }
+
+ commandButton.addEventListener('click', async () => {
+ if (commandButton.disabled || !validateBriefForClaude()) return;
+ setCommandProcessingState(true);
+ status.textContent = 'Preparing the Claude command…';
+ status.className = '';
+ try {
+ const command = buildClaudeCommand();
+ await window.app.sendMessage({
+  role: "user",
+  content: [{ type: "text", text: command }]
+});
+ status.textContent = 'Command sent to chat.';
+ status.className = 'saved';
+ copyPromptHintText.textContent = 'Message ready for next step';
+ copyPromptHint.classList.add('is-confirmed');
+ window.setTimeout(() => {
+ copyPromptHint.classList.remove('is-confirmed');
+ copyPromptHintText.textContent = 'Send message for next step';
+ }, 3200);
+ } catch (error) {
+ status.textContent = 'The command could not be sent to chat.';
+ status.className = '';
+ } finally {
+ setCommandProcessingState(false);
+ }
+ });
+
+ // Clears requester-entered fields back to their tool-provided defaults, without touching tactic data.
+ function resetRequesterFields() {
+ const toolState = window.__workatoToolState || {};
+ partnerIncluded.value = toolState.partnerIncluded || '';
+ document.getElementById('partner-name').value = toolState.partnerName || '';
+ document.getElementById('partner-name').readOnly = Boolean(toolState.partnerName);
+ document.getElementById('cta-url').value = toolState.ctaUrl || '';
+ document.getElementById('cta-url').readOnly = Boolean(toolState.ctaUrl);
+ audienceDescriptionToggle.checked = false;
+ offerDetailsToggle.checked = false;
+ additionalMarketerContextToggle.checked = false;
+ sessionDetailsToggle.checked = false;
+ eventSpeakersToggle.checked = false;
+ document.getElementById('additional-context').value = '';
+ document.getElementById('additional-context').dispatchEvent(new Event('input'));
+ restoreSuggestionFields();
+ refreshPartnerFields();
+ refreshOptionalFields();
+ status.textContent = 'Requester fields reset; tactic-provided values kept.';
+ status.className = '';
+ updateCommandButtonState();
+ }
+
+ document.getElementById('reset-brief').addEventListener('click', resetRequesterFields);
+
+ // --- Help walkthrough (driver.js) ---
+
+ const helpTourButton = document.getElementById('help-tour-button');
+ const helpTourHint = document.getElementById('help-tour-hint');
+ let tourOriginalState = null;
+
+ // Hides the "click for a walkthrough" nudge, whether the user clicked it or it's just timed out.
+ function dismissHelpHint() {
+ if (helpTourHint) helpTourHint.hidden = true;
+ }
+ window.setTimeout(dismissHelpHint, 9000);
+
+ // Snapshots the partner/optional-field state so the tour can restore it exactly once it closes.
+ function captureTourState() {
+ return {
+ partnerIncluded: partnerIncluded.value,
+ audienceDescription: audienceDescriptionToggle.checked,
+ sessionDetails: sessionDetailsToggle.checked,
+ eventSpeakers: eventSpeakersToggle.checked,
+ offerDetails: offerDetailsToggle.checked,
+ additionalContext: additionalMarketerContextToggle.checked
+ };
+ }
+
+ // Puts the partner/optional-field state back the way it was before the tour opened anything.
+ function restoreTourState(state) {
+ if (!state) return;
+ partnerIncluded.value = state.partnerIncluded;
+ refreshPartnerFields();
+ audienceDescriptionToggle.checked = state.audienceDescription;
+ sessionDetailsToggle.checked = state.sessionDetails;
+ eventSpeakersToggle.checked = state.eventSpeakers;
+ offerDetailsToggle.checked = state.offerDetails;
+ additionalMarketerContextToggle.checked = state.additionalContext;
+ refreshOptionalFields();
+ updateCommandButtonState();
+ }
+
+ // Reveals the partner name/contribution fields for the "Partner information" tour step.
+ function revealPartnerFieldsForTour() {
+ if (partnerIncluded.value !== 'yes') {
+ partnerIncluded.value = 'yes';
+ refreshPartnerFields();
+ }
+ }
+
+ // Reveals audience description, session details, and event speakers for the "Event details" tour step.
+ function revealEventDetailsOptionalFieldsForTour() {
+ audienceDescriptionToggle.checked = true;
+ sessionDetailsToggle.checked = true;
+ eventSpeakersToggle.checked = true;
+ refreshOptionalFields();
+ }
+
+ // Reveals offer details and additional marketer context for the "Optional details" tour step.
+ function revealOptionalDetailsFieldsForTour() {
+ offerDetailsToggle.checked = true;
+ additionalMarketerContextToggle.checked = true;
+ refreshOptionalFields();
+ }
+
+ // Builds the walkthrough steps, skipping any whose target isn't currently visible on the page.
+ function buildTourSteps() {
+ const candidateSteps = [
+ { element: '[data-glean-id="language-picker-group"]', popover: { title: 'Languages', description: '<strong>Input language</strong> — select the language you want the AI-generated suggestions shown in.<br><strong>Email language</strong> — select the language you want the final email copy generated in.' } },
+ { element: '#reset-brief', popover: { title: 'Reset', description: 'This resets all fields to their default values.' } },
+ { element: '[data-glean-id="tactic-title-section"]', popover: { title: 'Tactic title', description: 'The <strong>title of the selected tactic</strong>, pulled automatically and read-only.' } },
+ { element: '[data-glean-id="event-details-section"]', popover: { title: 'Event details', description: 'This section captures the substance of the event — what’s happening, why it matters, and who’s involved.' }, onHighlightStarted: revealEventDetailsOptionalFieldsForTour },
+ { element: '[data-glean-id="key_takeaways-suggestions"]', popover: { title: 'AI-generated options', description: 'This field comes pre-filled with <strong>three AI-generated options</strong>.<br><br><strong>Select a numbered button</strong> (1, 2, or 3) to switch between them — the option currently displayed is the one that will be submitted when you continue.<br><br>You can also <strong>edit the text directly</strong>, and your changes will be saved as the final version.' } },
+ { element: '[data-glean-id="key-takeaways-field"]', popover: { title: 'Key takeaways', description: '<strong>Key takeaways</strong> — what attendees will learn, see, or be able to do by attending. Required.' } },
+ { element: '[data-glean-id="event-pitch-field"]', popover: { title: 'Event pitch', description: '<strong>Event pitch</strong> — the core value proposition: what makes this event worth attending. Required.' } },
+ { element: '[data-glean-id="audience-description-field"]', popover: { title: 'Audience description', description: '<strong>Audience description</strong> — who this email is for: role, industry, seniority, technical level, company type, or current challenge. Optional — click Show to add it.' } },
+ { element: '[data-glean-id="session-details-field"]', popover: { title: 'Session details', description: '<strong>Session details</strong> — the session’s title, format, agenda, or other key context. Optional.' } },
+ { element: '[data-glean-id="event-speakers-field"]', popover: { title: 'Event speakers', description: '<strong>Event speakers</strong> — each speaker’s name, title, company, and relevant details. Optional — add as many as apply.' } },
+ { element: '[data-glean-id="objective-section"]', popover: { title: 'Email action', description: 'The <strong>Primary CTA URL</strong> is the landing page recipients reach when they click the email’s main call to action.' } },
+ { element: '[data-glean-id="partner-section"]', popover: { title: 'Partner information', description: 'Partner details are filled in automatically when the tactic includes a co-marketing partner. When shown, review or edit the <strong>AI-generated partner contribution</strong> options to describe their role in the initiative.' }, onHighlightStarted: revealPartnerFieldsForTour },
+ { element: '[data-glean-id="optional-details-section"]', popover: { title: 'Optional details', description: 'Add offer details (promo codes, eligibility, expiration) or any other context the email-writing skill should know about. Leave these collapsed if they don’t apply.' }, onHighlightStarted: revealOptionalDetailsFieldsForTour },
+ { element: '[data-glean-id="copy-prompt-action"]', popover: { title: 'Confirm', description: 'Once the required fields are complete, <strong>Confirm</strong> compiles the finalized brief and submits it to the next step, where the actual email copy will be drafted.' } }
+ ];
+ return candidateSteps.filter((step) => {
+ const target = document.querySelector(step.element);
+ return Boolean(target) && target.offsetParent !== null;
+ });
+ }
+
+ // Starts the driver.js walkthrough, temporarily opening any collapsed fields it needs to show and restoring them on close.
+ function startHelpTour() {
+ if (!window.driver || !window.driver.js || typeof window.driver.js.driver !== 'function') {
+ status.textContent = 'The help walkthrough could not load. Please try again.';
+ status.className = '';
+ return;
+ }
+ const steps = buildTourSteps();
+ if (!steps.length) {
+ status.textContent = 'Nothing to walk through yet — wait for the brief to finish loading.';
+ status.className = '';
+ return;
+ }
+ tourOriginalState = captureTourState();
+ const { driver } = window.driver.js;
+ const overlayColor = getComputedStyle(document.documentElement).getPropertyValue('--artifact-slate').trim() || '#001E2B';
+ const driverObj = driver({
+ showProgress: true,
+ allowClose: true,
+ overlayOpacity: 0.55,
+ overlayColor,
+ stagePadding: 6,
+ stageRadius: 10,
+ steps,
+ onDestroyed: () => {
+ restoreTourState(tourOriginalState);
+ tourOriginalState = null;
+ }
+ });
+ driverObj.drive();
+ }
+
+ helpTourButton?.addEventListener('click', () => {
+ dismissHelpHint();
+ startHelpTour();
+ });
+ </script>
+ <script type="module">
+ // Module script: the only part of this file with network access. Owns the MCP connection and
+ // every Workato tool call. It reads nothing from script 1 directly — it drives the DOM only
+ // through the window-global functions script 1 exposes (window.revealPrefilledApp,
+ // window.applyGeneratedSuggestions, window.extractWorkatoLanguageEntries), and exposes window.app
+ // / window.__workatoToolPayload / window.__workatoToolState back for script 1 to read. See the
+ // file-top comment for the full request sequence (validate → poll build_email_brief → apply).
+ import { App } from 'https://cdn.jsdelivr.net/npm/@modelcontextprotocol/ext-apps@1.3.1/dist/src/app-with-deps.js';
+
+ const app = new App({ name: 'Email Brief Builder', version: '1.1.0' });
+ window.app = app;
+ const ENHANCE_TOOL_NAME = 'Email_Studio_Utilities';
+ const ENHANCE_TOOL_PROCESS = 'enhance_with_ai';
+ const VALIDATE_TOOL_NAME = 'Email_Brief_Builder';
+ const BUILD_BRIEF_TOOL_NAME = 'Email_Studio_Utilities';
+ const BUILD_BRIEF_PROCESS = 'build_email_brief';
+ // build_email_brief can return before its content is ready; poll it until key content arrives, up to this many total calls (10s apart).
+ const BRIEF_POLL_MAX_ATTEMPTS = 10;
+ const BRIEF_POLL_INTERVAL_MS = 10000;
+ const UNSUPPORTED_MESSAGES = {
+ notFound: {
+ title: 'Tactic link not found',
+ copy: 'We couldn’t find a tactic matching this link. Please check the link and try again from the tactic record.'
+ },
+ notEmailTactic: {
+ title: 'Email brief isn’t available for this tactic',
+ copy: 'This tactic doesn’t include email sub-tasks, which are required to build an email brief. No action is needed here — please continue from the tactic’s existing sub-tasks instead.'
+ },
+ generationFailed: {
+ title: 'Email brief couldn’t be generated',
+ copy: 'The brief-generation tool reported that this tactic isn’t valid for email creation. Please check the tactic record, or try again later.'
+ }
+ };
+ window.__workatoToolPayload = {};
+ window.__workatoToolState = { partnerIncluded: '', partnerName: '', ctaUrl: '' };
+
+ // --- Workato response parsing --- (every app.callServerTool() result passes through
+ // unwrapWorkatoResult before any field on it is read, regardless of which tool was called)
+ // Parses a value as JSON if it's a string, otherwise returns it unchanged.
+ function parseMaybeJson(value) {
+ if (typeof value !== 'string') return value;
+ try { return JSON.parse(value); } catch (error) { return value; }
+ }
+
+ // Unwraps a Workato MCP tool result (structuredContent/content/result nesting) into a plain data object.
+ function unwrapWorkatoResult(raw) {
+ let parsed = raw && raw.structuredContent;
+ if (!parsed && raw && raw.content && raw.content[0] && raw.content[0].text) parsed = parseMaybeJson(raw.content[0].text);
+ parsed = parseMaybeJson(parsed || raw || {});
+ if (parsed && parsed.result) parsed = parsed.result;
+ return parseMaybeJson(parsed || {});
+ }
+
+ // Checks whether a raw tool value is present and non-blank.
+ function hasValue(value) { return value !== null && value !== undefined && String(value).trim() !== ''; }
+ // Coerces a raw tool value (boolean or truthy/falsy string) to a boolean.
+ function isTrue(value) { if (typeof value === 'boolean') return value; return ['true', 'yes', '1', 'y'].includes(String(value || '').trim().toLowerCase()); }
+
+ // --- Tactic loading, validation & polling --- (loadTacticBrief is the entry point; it gates on
+ // Email_Brief_Builder's flag/sub_task, then hands off to pollForTacticBrief for build_email_brief)
+ // Swaps the loading card into a static message explaining why the brief isn't available for this tactic.
+ function showUnsupportedTactic(titleText, copyText) {
+ const loadingState = document.getElementById('prefill-loading');
+ const indicator = document.getElementById('prefill-loading-indicator');
+ const title = document.getElementById('prefill-loading-title');
+ const copy = document.getElementById('prefill-loading-copy');
+ if (indicator) indicator.hidden = true;
+ if (title) title.textContent = titleText;
+ if (copy) {
+ copy.textContent = copyText;
+ copy.hidden = false;
+ }
+ if (loadingState) {
+ loadingState.hidden = false;
+ loadingState.classList.add('is-unsupported');
+ }
+ const appShell = document.querySelector('[data-glean-id="email-copy-brief-app"]');
+ appShell?.setAttribute('aria-busy', 'false');
+ }
+
+ let prefillLoaded = false;
+
+ // Determines whether the tool's response actually contains generated content, not just partial tactic facts.
+ function isPrefillResponse(data) {
+ // A language payload is complete only when it contains at least one populated content field.
+ const languages = typeof window.extractWorkatoLanguageEntries === 'function'
+ ? window.extractWorkatoLanguageEntries(data)
+ : [];
+ const contentKeys = ['key_takeaways', 'event_pitch', 'audience_description', 'session_details', 'event_speaker', 'partner_contribution', 'offer_details'];
+ const hasLanguageContent = languages.some((language) => language.outputs.some((output) => contentKeys.some((key) => hasValue(output[key]))));
+ if (hasLanguageContent) return true;
+ const generatedOptionPattern = /^(key_takeaways|event_pitch|audience_description|session_details|event_speaker|partner_contribution|offer_details)_[123]$/;
+ return Object.entries(data || {}).some(([key, value]) => generatedOptionPattern.test(key) && hasValue(value));
+ }
+
+ // Handles the Email_Studio_Utilities build_email_brief response: merges tactic facts, partner/CTA state, and generated suggestions into the form.
+ function applyWorkatoPayload(raw) {
+ const data = unwrapWorkatoResult(raw);
+ // This handler is also wired to app.ontoolresult, which fires for every tool result (including the Email_Brief_Builder
+ // validation call). That response carries `sub_task` but none of the real brief content, so ignore it here.
+ if (Object.prototype.hasOwnProperty.call(data, 'sub_task') && !Array.isArray(data.tactic_details) && !data.languages) return false;
+ const tacticFacts = (Array.isArray(data.tactic_details) && data.tactic_details[0]) || {};
+ const currentState = window.__workatoToolState || {};
+ const currentTitle = document.getElementById('tactic-title').textContent;
+ const currentEventLink = document.getElementById('cta-url').value;
+ const tacticLinkValue = hasValue(tacticFacts.tactic_link) ? String(tacticFacts.tactic_link) : document.getElementById('tactic-link').value;
+ const titleValue = hasValue(tacticFacts.tactic_title)
+ ? String(tacticFacts.tactic_title).trim()
+ : hasValue(tacticFacts.event_title)
+ ? String(tacticFacts.event_title).trim()
+ : hasValue(tacticFacts.title)
+ ? String(tacticFacts.title).trim()
+ : (currentTitle !== 'Waiting for tactic details…' ? currentTitle : 'Untitled tactic');
+ const partnerMetadataPresent = ['tactic_partner_type', 'tactic_co_marketing_partner', 'secondary_co_marketing_partner', 'co_marketing_partner_exists', 'secondary_co_marketing_partner_exists'].some((key) => Object.prototype.hasOwnProperty.call(tacticFacts, key));
+ const mainPartner = tacticFacts.tactic_co_marketing_partner || '';
+ const secondaryPartner = tacticFacts.secondary_co_marketing_partner || '';
+ const partnerName = partnerMetadataPresent
+ ? [mainPartner, secondaryPartner].map((value) => String(value || '').trim()).filter(Boolean).filter((value, index, values) => values.indexOf(value) === index).join(' / ')
+ : (currentState.partnerName || '');
+ const partnerExists = partnerMetadataPresent
+ ? hasValue(tacticFacts.tactic_partner_type) || hasValue(mainPartner) || hasValue(secondaryPartner) || isTrue(tacticFacts.co_marketing_partner_exists) || isTrue(tacticFacts.secondary_co_marketing_partner_exists)
+ : currentState.partnerIncluded === 'yes';
+ const eventLink = hasValue(tacticFacts.event_link)
+ ? String(tacticFacts.event_link).trim()
+ : hasValue(tacticFacts.tactic_event_link)
+ ? String(tacticFacts.tactic_event_link).trim()
+ : (currentState.ctaUrl || currentEventLink);
+ window.__workatoToolPayload = tacticFacts;
+ window.__workatoToolState = { partnerIncluded: partnerExists ? 'yes' : 'no', partnerName, ctaUrl: eventLink };
+ const hasValidPrefill = isPrefillResponse(data);
+ prefillLoaded = prefillLoaded || hasValidPrefill;
+ document.getElementById('tactic-link').value = tacticLinkValue;
+ document.getElementById('tactic-title').textContent = String(titleValue);
+ const partnerIncluded = document.getElementById('partner-included');
+ const partnerNameInput = document.getElementById('partner-name');
+ partnerIncluded.value = partnerExists ? 'yes' : 'no';
+ partnerNameInput.value = partnerName;
+ partnerNameInput.readOnly = Boolean(partnerName);
+ partnerNameInput.classList.toggle('tool-populated', Boolean(partnerName));
+ const ctaUrlInput = document.getElementById('cta-url');
+ ctaUrlInput.value = eventLink;
+ ctaUrlInput.readOnly = Boolean(eventLink);
+ ctaUrlInput.classList.toggle('tool-populated', Boolean(eventLink));
+ if (typeof window.applyGeneratedSuggestions === 'function') window.applyGeneratedSuggestions(data);
+ if (typeof refreshPartnerFields === 'function') refreshPartnerFields();
+ if (hasValidPrefill && typeof window.revealPrefilledApp === 'function') {
+ window.revealPrefilledApp();
+ document.getElementById('payload-status').textContent = 'Tactic details loaded. Complete the requester fields.';
+ } else {
+ document.getElementById('payload-status').textContent = 'Still loading generated event pitch and key takeaway options…';
+ }
+ if (typeof updateCommandButtonState === 'function') updateCommandButtonState();
+ return hasValidPrefill;
+ }
+
+ // Pauses for the given duration; used to space out build_email_brief polling attempts.
+ function wait(ms) {
+ return new Promise((resolve) => window.setTimeout(resolve, ms));
+ }
+
+ // Calls build_email_brief and polls it (every BRIEF_POLL_INTERVAL_MS, up to BRIEF_POLL_MAX_ATTEMPTS times) until
+ // the response carries real generated content. The tool can return before generation finishes, so an empty
+ // response isn't itself a failure. `flag: false` together with `valid_tactic: false` is also what the tool
+ // returns by default while generation is still in progress, so it is only treated as "invalid tactic" if it's
+ // still the answer on the final attempt. A saved-to-MongoDB cache on the Workato side means later polls
+ // for an already-processed tactic return quickly, even if the very first call is still slow.
+ async function pollForTacticBrief(tacticLink) {
+ for (let attempt = 1; attempt <= BRIEF_POLL_MAX_ATTEMPTS; attempt++) {
+ let briefRaw;
+ try {
+ briefRaw = await app.callServerTool(
+ { name: BUILD_BRIEF_TOOL_NAME, arguments: { process: BUILD_BRIEF_PROCESS, tactic_link: tacticLink } },
+ { timeout: 65000 } // 65s; the default is 60000
+ );
+ } catch (error) {
+ console.error(`[Email Brief Builder] build_email_brief attempt ${attempt} failed`, error);
+ if (attempt === BRIEF_POLL_MAX_ATTEMPTS) throw error;
+ await wait(BRIEF_POLL_INTERVAL_MS);
+ continue;
+ }
+ const data = unwrapWorkatoResult(briefRaw);
+ if (isPrefillResponse(data)) {
+ applyWorkatoPayload(briefRaw);
+ return;
+ }
+ if (attempt === BRIEF_POLL_MAX_ATTEMPTS) {
+ if (data.flag === false && data.valid_tactic === false) {
+ showUnsupportedTactic(UNSUPPORTED_MESSAGES.generationFailed.title, UNSUPPORTED_MESSAGES.generationFailed.copy);
+ return;
+ }
+ throw new Error('Brief generation did not complete within the allotted time.');
+ }
+ document.getElementById('payload-status').textContent = `Still generating your brief… checking again shortly (attempt ${attempt + 1} of ${BRIEF_POLL_MAX_ATTEMPTS}).`;
+ await wait(BRIEF_POLL_INTERVAL_MS);
+ }
+ }
+
+ // Validates the tactic link (Email_Brief_Builder) and, only if it's a valid email tactic, loads the full brief content (Email_Studio_Utilities / build_email_brief).
+ async function loadTacticBrief(tacticLink) {
+ const validateRaw = await app.callServerTool({ name: VALIDATE_TOOL_NAME, arguments: { tactic_link: tacticLink } });
+ console.log('[Email Brief Builder] validate raw:', validateRaw);
+ if (validateRaw?.isError) {
+ showUnsupportedTactic('Tactic lookup failed', String(validateRaw.content?.[0]?.text || 'Unknown error from Workato.'));
+ return;
+ }
+ const validateData = unwrapWorkatoResult(validateRaw);
+ if (!isTrue(validateData.flag)) {
+ showUnsupportedTactic(UNSUPPORTED_MESSAGES.notFound.title, UNSUPPORTED_MESSAGES.notFound.copy);
+ return;
+ }
+ if (!isTrue(validateData.sub_task)) {
+ showUnsupportedTactic(UNSUPPORTED_MESSAGES.notEmailTactic.title, UNSUPPORTED_MESSAGES.notEmailTactic.copy);
+ return;
+ }
+ const resolvedTacticLink = hasValue(validateData.tactic_link) ? String(validateData.tactic_link) : tacticLink;
+ document.getElementById('tactic-link').value = resolvedTacticLink;
+ await pollForTacticBrief(resolvedTacticLink);
+ }
+
+ app.ontoolresult = applyWorkatoPayload;
+ let workatoConnected = false;
+ let loadStarted = false;
+
+ // Starts the tactic-brief load exactly once, from whichever source (tool-launch arguments or URL) delivers a link first.
+ async function startLoad(link) {
+ if (loadStarted || !link) return;
+ loadStarted = true;
+ document.getElementById('tactic-link').value = link;
+ try {
+ await loadTacticBrief(link);
+ } catch (error) {
+ console.error('[Email Brief Builder] load failed', error);
+ document.getElementById('payload-status').textContent = 'Connected to Workato, but event prefill is unavailable. You can complete the brief manually.';
+ if (typeof window.revealPrefilledApp === 'function') window.revealPrefilledApp();
+ }
+ }
+
+ // MCP Apps deliver the arguments the host's tool call was launched with here; this is the primary source of the tactic link.
+ app.ontoolinput = (toolInput) => {
+ console.log('[Email Brief Builder] toolinput:', toolInput);
+ const args = toolInput?.arguments || {};
+ startLoad(String(args.tactic_link || args.permalink || args.tacticLink || '').trim());
+ };
+
+ const workatoConnection = app.connect().then(async () => {
+ workatoConnected = true;
+ if (!prefillLoaded) {
+ const urlLink = document.getElementById('tactic-link').value.trim();
+ if (urlLink) {
+ await startLoad(urlLink);
+ } else {
+ window.setTimeout(() => {
+ if (!loadStarted) showUnsupportedTactic(UNSUPPORTED_MESSAGES.notFound.title, UNSUPPORTED_MESSAGES.notFound.copy);
+ }, 3000);
+ }
+ }
+ const status = document.getElementById('payload-status');
+ if (!status.textContent) status.textContent = 'Connected to Workato. Waiting for tactic details…';
+ }).catch(() => {
+ document.getElementById('payload-status').textContent = 'Workato connection unavailable. You can still complete the brief manually.';
+ if (typeof window.revealPrefilledApp === 'function') window.revealPrefilledApp();
+ });
+
+ // Sends a field's text to the AI-enhance tool and replaces the field's value with the rewritten result.
+ window.enhanceTextareaWithAI = async function(textarea, fieldDescription, button) {
+ const status = document.getElementById('payload-status');
+ const originalText = textarea.value.trim();
+ if (!originalText) {
+ status.textContent = `Add text to ${fieldDescription} before enhancing it.`;
+ status.className = '';
+ textarea.focus();
+ return;
+ }
+ const textareaShell = textarea.closest('.textarea-shell');
+ const wasReadOnly = textarea.readOnly;
+ if (button) button.disabled = true;
+ textarea.readOnly = true;
+ textarea.setAttribute('aria-busy', 'true');
+ textarea.classList.add('enhancing');
+ textareaShell?.classList.add('is-enhancing');
+ status.textContent = `Enhancing ${fieldDescription}…`;
+ status.className = '';
+ try {
+ await workatoConnection;
+ if (!workatoConnected) throw new Error('Workato MCP connection is unavailable.');
+ const contextualMessage = [
+ `Field context: ${fieldDescription}`,
+ 'Use this context to improve the wording, but do not include the field label or these instructions in the output.',
+ '',
+ 'Text to articulate:',
+ originalText
+ ].join('\n');
+ const raw = await app.callServerTool({ name: ENHANCE_TOOL_NAME, arguments: { process: ENHANCE_TOOL_PROCESS, msg: contextualMessage } });
+ const result = unwrapWorkatoResult(raw);
+ const enhancedText = typeof result.msg === 'string' ? result.msg.trim() : '';
+ if (result.flag !== true || !enhancedText) throw new Error('The enhancement tool returned no msg value.');
+ textarea.value = enhancedText;
+ textarea.dispatchEvent(new Event('input', { bubbles: true }));
+ status.textContent = `${fieldDescription} enhanced.`;
+ status.className = 'saved';
+ textarea.focus();
+ } catch (error) {
+ status.textContent = `Could not enhance ${fieldDescription}. Please try again.`;
+ status.className = '';
+ textarea.focus();
+ } finally {
+ textarea.readOnly = wasReadOnly;
+ textarea.removeAttribute('aria-busy');
+ textarea.classList.remove('enhancing');
+ textareaShell?.classList.remove('is-enhancing');
+ if (button) button.disabled = false;
+ }
+ };
+ </script>
+</body>
+</html>

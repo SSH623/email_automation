@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="workato-mcp-app" content="true" />
+  <meta name="workato-launch-tool" content="Tactic_Selection_App" />
+  <meta name="glean-artifact-type" content="web-design" />
+  <title>MongoDB Tactic Library</title>
+  <style>
+    :root {
+      --bg: var(--theme-background, #f7faf8);
+      --surface: var(--theme-surface, #ffffff);
+      --surface-muted: var(--theme-background-light, #eef4f1);
+      --text: var(--theme-text-primary, #001e2b);
+      --muted: var(--theme-text-secondary, #52656b);
+      --border: var(--theme-border-light, #d6e2dc);
+      --green: #00684a;
+      --green-dark: #00513a;
+      --lime: #00ed64;
+      --focus: rgba(0, 104, 74, 0.24);
+      --shadow: 0 18px 44px rgba(0, 30, 43, 0.1);
+    }
+    html[data-theme="dark"] {
+      --bg: var(--theme-background, #071d24);
+      --surface: var(--theme-surface, #0e2930);
+      --surface-muted: var(--theme-background-light, #14363b);
+      --text: var(--theme-text-primary, #f3fbf7);
+      --muted: var(--theme-text-secondary, #b4c9c1);
+      --border: var(--theme-border-light, #2d4b4e);
+      --green: #00ed64;
+      --green-dark: #72f5ae;
+      --lime: #00ed64;
+      --focus: rgba(0, 237, 100, 0.28);
+      --shadow: 0 22px 55px rgba(0, 0, 0, 0.28);
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body { min-height: 100%; margin: 0; }
+    body {
+      font-family: "Lexend Deca", "Trebuchet MS", system-ui, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+    }
+    body::before, body::after {
+      content: "";
+      position: fixed;
+      z-index: -1;
+      pointer-events: none;
+      border-radius: 999px;
+      opacity: .78;
+    }
+    body::before { width: 500px; height: 500px; top: -180px; right: -90px; background: #e4f6ee; transform: rotate(16deg); }
+    body::after { width: 600px; height: 430px; right: -170px; bottom: -230px; background: #f4f8ee; transform: rotate(-14deg); }
+    html[data-theme="dark"] body::before { background: #133b32; }
+    html[data-theme="dark"] body::after { background: #17362b; }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, input:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+    .shell { min-height: 100vh; display: grid; place-items: center; padding: 28px 18px; }
+    .panel { width: min(100%, 650px); padding: 38px 40px 30px; border: 1px solid var(--border); border-radius: 24px; background: var(--surface); box-shadow: var(--shadow); }
+    .brand { display: inline-flex; align-items: center; gap: 9px; margin-bottom: 24px; color: var(--green); font-size: 13px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+    .brand-dot { width: 11px; height: 11px; border-radius: 65% 35% 65% 35%; background: var(--lime); transform: rotate(45deg); }
+    .search-label, .list-header { color: var(--muted); font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+    .search-label { display: block; margin-bottom: 7px; }
+    .search-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; margin-bottom: 17px; }
+    .search-wrap { position: relative; margin-bottom: 0; }
+    .search-icon { position: absolute; top: 50%; left: 15px; width: 19px; height: 19px; color: var(--muted); transform: translateY(-50%); pointer-events: none; }
+    #search-input { width: 100%; min-height: 50px; padding: 0 16px 0 46px; border: 1px solid var(--border); border-radius: 13px; color: var(--text); background: var(--surface-muted); outline: none; }
+    #search-input::placeholder { color: var(--muted); }
+    #search-input:focus { border-color: var(--green); box-shadow: 0 0 0 4px var(--focus); }
+    .status-filter { width: 132px; min-height: 50px; padding: 0 28px 0 12px; border: 1px solid var(--border); border-radius: 13px; color: var(--muted); background: var(--surface-muted); font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; outline: none; }
+    .status-filter:focus { border-color: var(--green); box-shadow: 0 0 0 4px var(--focus); }
+    .list-header { display: flex; justify-content: space-between; gap: 14px; align-items: center; margin-bottom: 10px; }
+    #tactic-count { font-variant-numeric: tabular-nums; }
+    .list { display: grid; gap: 9px; max-height: min(52vh, 520px); overflow-y: auto; padding-right: 3px; }
+    .tactic-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: center; min-height: 58px; padding: 11px 12px 11px 16px; border: 1px solid var(--border); border-radius: 13px; background: var(--surface-muted); }
+    .tactic-name { min-width: 0; color: var(--text); font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
+    .tactic-row.is-selected { border-color: var(--green); background: var(--surface); box-shadow: 0 0 0 3px var(--focus); }
+    .select-button-wrap { display: inline-flex; }
+    .select-button { min-width: 78px; min-height: 35px; padding: 0 12px; border: 1px solid var(--green); border-radius: 9px; color: var(--green-dark); background: transparent; font-size: 12px; font-weight: 800; }
+    .select-button:hover:not(:disabled), .select-button.is-selected:not(:disabled) { color: var(--text); background: var(--lime); border-color: var(--lime); }
+    .select-button:disabled { cursor: not-allowed; opacity: .52; }
+    .send-row { display: flex; justify-content: flex-end; align-items: flex-start; gap: 10px; margin-top: 16px; }
+    .reset-button { height: 42px; min-height: 42px; padding: 0 16px; border: 1px solid var(--border); border-radius: 10px; color: var(--muted); background: transparent; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+    .reset-button:hover:not(:disabled) { color: var(--text); border-color: var(--green); background: var(--surface-muted); }
+    .reset-button:disabled { cursor: wait; opacity: .48; }
+    .empty-state { padding: 28px 15px; border: 1px dashed var(--border); border-radius: 13px; color: var(--muted); text-align: center; font-size: 13px; }
+    .status { min-height: 0; margin: 15px 0 0; color: var(--muted); font-size: 12px; }
+    .status[data-state="error"] { color: #b3261e; }
+    html[data-theme="dark"] .status[data-state="error"] { color: #ff9f9f; }
+    @media (max-width: 560px) { .panel { padding: 28px 21px 24px; border-radius: 19px; } .brand { margin-bottom: 31px; } .search-row { grid-template-columns: 1fr; } .status-filter { width: 100%; } .tactic-row { grid-template-columns: minmax(0, 1fr) auto; } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; } }
+    @media print {
+      @page { size: auto !important; }
+      body { margin: 0; background: var(--bg); print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      .shell { min-height: auto; padding: 0; }
+      .panel { width: 100%; max-width: 100%; box-shadow: none; }
+      .list { max-height: none; overflow: visible; }
+      .send-row, .select-button { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell" data-glean-id="tactic-selector-app">
+    <section class="panel" data-glean-id="tactic-selector-panel" aria-label="Tactic selector">
+      <div class="brand" data-glean-id="brand"><span class="brand-dot" aria-hidden="true"></span><span>Tactic Library</span></div>
+      <div class="search-row" data-glean-id="tactic-search-controls">
+        <div class="search-wrap" data-glean-id="tactic-search">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 5 5"></path></svg>
+          <label class="search-label" for="search-input">Tactic search</label>
+          <input id="search-input" type="search" autocomplete="off" spellcheck="false" />
+        </div>
+        <select id="status-filter" class="status-filter" aria-label="Filter tactics by status">
+          <option value="">All statuses</option>
+          <option value="Completed">Completed</option>
+          <option value="Briefed">Briefed</option>
+        </select>
+      </div>
+
+      <div class="list-header" data-glean-id="tactic-list-header"><span>Available tactics</span><span id="tactic-count">Loading…</span></div>
+      <div id="tactic-list" class="list" data-glean-id="tactic-list" aria-live="polite"></div>
+      <div class="send-row" data-glean-id="tactic-actions">
+        <button id="reset-button" class="reset-button" type="button">Reset</button>
+      </div>
+      <p id="status" class="status" data-glean-id="tactic-status" role="status" aria-live="polite">Connecting…</p>
+    </section>
+  </main>
+
+  <script type="module">
+    import { App } from "https://cdn.jsdelivr.net/npm/@modelcontextprotocol/ext-apps@1.3.1/dist/src/app-with-deps.js";
+
+    const CONFIG = Object.freeze({
+      launchTool: "Tactic_Selection_App",
+      pullRestrictedTacticsTool: "Tactic_List_For_Selection_App"
+    });
+
+    const app = new App({ name: "MongoDB Tactic Library", version: "0.5.0" });
+
+    const searchInput = document.getElementById("search-input");
+    const statusFilter = document.getElementById("status-filter");
+    const list = document.getElementById("tactic-list");
+    const resetButton = document.getElementById("reset-button");
+    const count = document.getElementById("tactic-count");
+    const status = document.getElementById("status");
+    let tactics = [];
+    let selectedTactic = null;
+    let tacticsLoaded = false;
+    let prefill = { tacticName: "", tacticLink: "" };
+
+    function setStatus(message, state = "ready") {
+      status.textContent = message;
+      status.dataset.state = state;
+    }
+
+    async function sendPromptToChat(text) {
+      await app.sendMessage({
+        role: "user",
+        content: [{ type: "text", text }]
+      });
+    }
+
+    function parseJson(value) {
+      if (typeof value !== "string") return value;
+      try { return JSON.parse(value); } catch { return null; }
+    }
+
+    function unwrapResult(raw) {
+      let parsed = raw && raw.structuredContent;
+      if (typeof parsed === "string") parsed = parseJson(parsed);
+      if (!parsed) {
+        const text = raw && raw.content && raw.content[0] && raw.content[0].text;
+        parsed = parseJson(text) || (text ? { result: text } : raw);
+      }
+      return parsed && parsed.result !== undefined ? parsed.result : parsed;
+    }
+
+    function firstField(source, names) {
+      if (!source || typeof source !== "object" || Array.isArray(source)) return "";
+      for (const name of names) {
+        if (source[name] !== undefined && source[name] !== null && String(source[name]).trim()) return String(source[name]);
+      }
+      return "";
+    }
+
+    function normalisePrefill(payload) {
+      const data = unwrapResult(payload);
+      const sources = [
+        data,
+        data && data.input,
+        data && data.arguments,
+        data && data.params,
+        data && data.data,
+        data && data.result
+      ].filter(Boolean);
+
+      for (const source of sources) {
+        const tacticName = firstField(source, ["tactic_name", "tacticName"]);
+        const tacticLink = firstField(source, ["tactic_link", "tacticLink", "permalink"]);
+        if (tacticName || tacticLink) return { tacticName, tacticLink };
+      }
+
+      return { tacticName: "", tacticLink: "" };
+    }
+
+    function normaliseTactics(payload) {
+      const data = unwrapResult(payload);
+      const records = Array.isArray(data)
+        ? data
+        : data && (data.items || data.tactics || data.campaigns || data.results || data.data) || [];
+
+      return records.map((item) => {
+        if (typeof item === "string") return { title: item, permalink: item, tactic_status: "", process_name: "" };
+        return {
+          title: item.title || item.name || item.Tactic_Name || item.tactic_name || "Untitled tactic",
+          permalink: item.permalink || item.tactic_permalink || item.Tactic_Permalink || item.url || "",
+          tactic_status: item.tactic_status || item.status || "",
+          process_name: item.process_name || item.processName || item.Process_Name || item.process || ""
+        };
+      }).filter((item) => item.title && item.permalink);
+    }
+
+    function findTacticNameFromLink(link) {
+      if (!link) return "";
+      const normalisedLink = String(link).trim().replace(/\/$/, "");
+      const match = tactics.find((tactic) => String(tactic.permalink).trim().replace(/\/$/, "") === normalisedLink);
+      return match ? match.title : "";
+    }
+
+    function applyPrefill() {
+      if (!tacticsLoaded) return;
+
+      const tacticName = prefill.tacticName || findTacticNameFromLink(prefill.tacticLink);
+      if (tacticName) searchInput.value = tacticName;
+
+      renderTactics();
+    }
+
+    function buildPrompt(tactic) {
+      const processSuffix = tactic.process_name ? ` — Process: ${tactic.process_name}` : "";
+      return `Selected tactic: ${tactic.title} — ${tactic.permalink}${processSuffix}`;
+    }
+
+    async function handleTacticSelection(tactic) {
+      selectedTactic = tactic;
+      searchInput.value = tactic.title;
+      renderTactics();
+      setStatus(`Sending ${tactic.title} to chat…`, "ready");
+
+      try {
+        await sendPromptToChat(buildPrompt(tactic));
+        setStatus("Prompt sent to chat.", "ready");
+      } catch (error) {
+        console.error("app.sendMessage failed", error);
+        setStatus("Could not send to chat. Please try again.", "error");
+      }
+    }
+
+    function renderTactics() {
+      const selectedStatus = statusFilter.value;
+      const query = searchInput.value.trim().toLowerCase();
+      const visible = tactics.filter((tactic) =>
+        tactic.title.toLowerCase().includes(query) &&
+        (!selectedStatus || tactic.tactic_status === selectedStatus)
+      );
+      count.textContent = `${visible.length} of ${tactics.length}`;
+      list.replaceChildren();
+
+      if (!visible.length) {
+        const empty = document.createElement("div");
+        empty.className = "empty-state";
+        empty.dataset.gleanId = query || selectedStatus ? "tactic-filter-empty" : "tactic-list-empty";
+        empty.textContent = selectedStatus
+          ? "No tactics match the selected status."
+          : query
+            ? "No tactics match your search."
+            : "No tactics are available.";
+        list.appendChild(empty);
+        return;
+      }
+
+      visible.forEach((tactic) => {
+        const row = document.createElement("div");
+        const isSelected = Boolean(selectedTactic && selectedTactic.permalink === tactic.permalink);
+        row.className = `tactic-row${isSelected ? " is-selected" : ""}`;
+        row.dataset.gleanId = `tactic-${encodeURIComponent(tactic.title).replace(/%/g, "-")}`;
+
+        const name = document.createElement("div");
+        name.className = "tactic-name";
+        name.textContent = tactic.title;
+
+        const buttonWrap = document.createElement("span");
+        buttonWrap.className = "select-button-wrap";
+        buttonWrap.title = `Select tactic ${tactic.title}`;
+
+        const selectButton = document.createElement("button");
+        selectButton.type = "button";
+        selectButton.className = `select-button${isSelected ? " is-selected" : ""}`;
+        selectButton.textContent = isSelected ? "✓ Selected" : "Select";
+        selectButton.setAttribute("aria-pressed", String(isSelected));
+        selectButton.setAttribute("aria-label", `${isSelected ? "Selected" : "Select"} tactic ${tactic.title}`);
+        selectButton.addEventListener("click", () => handleTacticSelection(tactic));
+
+        buttonWrap.appendChild(selectButton);
+        row.append(name, buttonWrap);
+        list.appendChild(row);
+      });
+    }
+
+    async function loadTactics() {
+      setStatus("Loading tactics…");
+      try {
+        const raw = await app.callServerTool({
+          name: CONFIG.pullRestrictedTacticsTool,
+          arguments: {}
+        });
+        tactics = normaliseTactics(raw);
+        tacticsLoaded = true;
+        applyPrefill();
+        setStatus(tactics.length ? "" : "No tactics were returned.", tactics.length ? "ready" : "error");
+      } catch (error) {
+        tactics = [];
+        tacticsLoaded = true;
+        renderTactics();
+        setStatus("Tactics could not be loaded. Please try again.", "error");
+        console.error("Tactic_List_For_Selection_App failed", error);
+      }
+    }
+
+    app.ontoolresult = (raw) => {
+      const incomingPrefill = normalisePrefill(raw);
+      if (incomingPrefill.tacticName || incomingPrefill.tacticLink) {
+        prefill = incomingPrefill;
+        applyPrefill();
+      }
+    };
+
+    resetButton.addEventListener("click", async () => {
+      resetButton.disabled = true;
+      selectedTactic = null;
+      statusFilter.value = "";
+      searchInput.value = "";
+      tactics = [];
+      prefill = { tacticName: "", tacticLink: "" };
+      renderTactics();
+      await loadTactics();
+      resetButton.disabled = false;
+    });
+
+    searchInput.addEventListener("input", renderTactics);
+    statusFilter.addEventListener("change", renderTactics);
+
+    try {
+      await app.connect();
+      await loadTactics();
+    } catch (error) {
+      setStatus("Could not connect to the tactic app.", "error");
+      console.error("MCP app connection failed", error);
+    }
+  </script>
+</body>
+</html>

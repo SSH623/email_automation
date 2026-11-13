@@ -1,32 +1,44 @@
 # Email Automation
 
-This repository contains three Workato MCP apps that support the email campaign workflow. Tactic Selection and Brief Builder are currently **v1**. Email Studio is **v2.3**.
+Email Automation is one project made of four Workato MCP apps. Together they cover the email campaign workflow, from picking a tactic to building and approving its emails. Tactic Selection and Brief Builder are **v1**, Email Studio is **v2.3**, and the Email Revision App is in progress.
+
+## Workflow
+
+1. **Tactic Selection**: find the tactic to work on.
+2. **Brief Builder**: build the email brief for that tactic.
+3. **Email Studio**: write, preview, build and approve the tactic's emails.
+4. **Email Revision App** (in progress): revise emails after they are built.
 
 ## Apps
 
-| App | Purpose |
-| --- | --- |
-| **Tactic Selection** | Search and filter the available tactic library by status, then send a selected tactic and its context to chat. |
-| **Brief Builder** | Validate a tactic's email support, load its generated brief, choose or edit suggested copy, optionally enhance fields with AI, and send a structured brief to the email composer. |
-| **Email Studio** | Load saved email drafts for a tactic, edit and preview email content, and customize templates, layouts, rich text, calls to action, and banners. |
+| App | Purpose | Status |
+| --- | --- | --- |
+| **Tactic Selection** | Search and filter the available tactic library by status, then send a selected tactic and its context to chat. | v1 |
+| **Brief Builder** | Validate a tactic's email support, load its generated brief, choose or edit suggested copy, optionally enhance fields with AI, and send a structured brief to the email composer. | v1 |
+| **Email Studio** | Load saved email drafts for a tactic, edit and preview email content, and customize templates, layouts, rich text, calls to action, and banners. | v2.3 |
+| **Email Revision App** | Revise emails. Development has started in Sandbox. | In progress |
 
 ## Repository Layout
 
-Each app has separate `Production` and `Sandbox` folders, with its HTML app entry point in each:
+Each app has its own folder with separate `Production` and `Sandbox` folders, and its HTML app entry point in each:
 
 ```text
-Brief Builder/
-	Production/email_brief_builder.html
-	Sandbox/email_brief_builder.html
-Email Studio/
-	Production/email_studio.html
-	Sandbox/email_studio.html
-Tactic Selection/
-	Production/tactic_selection_app.html
-	Sandbox/tactic_selection_app.html
+email_automation/
+	README.md
+	Tactic Selection/
+		Production/tactic_selection_app.html
+		Sandbox/tactic_selection_app.html
+	Brief Builder/
+		Production/email_brief_builder.html
+		Sandbox/email_brief_builder.html
+	Email Studio/
+		Production/email_studio.html
+		Sandbox/email_studio.html
+	Email Revision App/
+		Sandbox/email_revision.html
 ```
 
-Use the `Production` copy for the deployed app and the `Sandbox` copy for development and testing.
+Use the `Production` copy for the deployed app and the `Sandbox` copy for development and testing. The Email Revision App has no Production copy yet.
 
 ## Runtime
 
@@ -36,9 +48,10 @@ These are MCP apps intended to run inside their host environment, not standalone
 
 | App | Version | Notes |
 | --- | --- | --- |
-| Tactic Selection | v1 | Initial release. |
-| Brief Builder | v1 | Initial release. |
+| Tactic Selection | v1 | Initial release. Production and Sandbox are identical. |
+| Brief Builder | v1 | Initial release. Sandbox adds help text for the event fields (time zone, start time, end time, location, title) that Production does not have yet. |
 | Email Studio | v2.3 | Fixed MongoDB logo image in every email preview. See the changelog below. |
+| Email Revision App | Not released | In progress. See below. |
 
 When Sandbox changes are promoted to Production, bump the version here and add an entry to the app's changelog. Production keeps a single file; earlier versions live in the git history. Put the release date under each changelog entry.
 
@@ -48,9 +61,8 @@ When Sandbox changes are promoted to Production, bump the version here and add a
 
 Work started 2026-11-13. Not released yet.
 
-- Added the `Email Revision App/` folder with `Sandbox` and `Production` folders.
-- First development copy at `Email Revision App/Sandbox/email_revision.html`.
-- Production has no file yet. It will get one when the app is first promoted from Sandbox.
+- Added the `Email Revision App/` folder with a `Sandbox` folder (a `Production` folder will be added on first release).
+- The starting point, `Email Revision App/Sandbox/email_revision.html`, is a copy of the Email Studio v2.3 Sandbox file. Revision features will be built on top of it.
 
 ## Email Studio Changelog
 
