@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<meta name="mcp-launch-tool" content="Tactic_Email_Studio"/>
+<meta name="mcp-launch-tool" content="Email_Revision"/>
 <meta name="mcp-launch-input-schema" content="{}"/>
 <meta name="mcp-launch-output" content="The result is rendered as an interactive MCP app in the chat. The MCP app is the response. Do not list, summarize, or restate the returned items in text."/>
 <title>
@@ -2053,7 +2053,7 @@ html[data-theme=dark] .guide-chip.is-blocker {
   min-width:0
 }
 .choice-input {
-  padding-right:84px
+  padding-right:104px
 }
 .choice-input-check {
   right:52px
@@ -2061,7 +2061,7 @@ html[data-theme=dark] .guide-chip.is-blocker {
 .choice-count {
   position:absolute;
   top:50%;
-  right:10px;
+  right:42px;
   transform:translateY(-50%);
   color:var(--artifact-muted);
   font-size:11px;
@@ -2075,6 +2075,87 @@ html[data-theme=dark] .guide-chip.is-blocker {
 .choice-suggest {
   color:var(--artifact-muted);
   font-size:11px
+}
+
+/* ---- Enhance with AI button inside the subject/preheader box (same button as Brief Builder) ---- */
+.ai-button {
+  position:absolute;
+  top:50%;
+  right:6px;
+  z-index:1;
+  display:grid;
+  place-items:center;
+  width:27px;
+  height:27px;
+  padding:0;
+  border:1px solid var(--artifact-border);
+  border-radius:7px;
+  color:var(--artifact-forest);
+  background:var(--artifact-surface-soft);
+  font:inherit;
+  font-size:13px;
+  font-weight:900;
+  transform:translateY(-50%);
+  transition:background .16s ease,border-color .16s ease,transform .16s ease
+}
+.ai-button::after {
+  content:attr(title);
+  position:absolute;
+  right:0;
+  bottom:calc(100% + 8px);
+  width:max-content;
+  padding:5px 7px;
+  border-radius:6px;
+  color:var(--artifact-background);
+  background:var(--artifact-slate);
+  font-size:11px;
+  font-weight:700;
+  opacity:0;
+  pointer-events:none;
+  transform:translateY(3px);
+  transition:opacity .14s ease,transform .14s ease
+}
+.ai-button:hover,.ai-button:focus-visible {
+  background:var(--artifact-surface);
+  border-color:var(--artifact-spring);
+  transform:translateY(calc(-50% - 1px))
+}
+.ai-button:hover::after,.ai-button:focus-visible::after {
+  opacity:1;
+  transform:translateY(0)
+}
+.ai-button:disabled {
+  opacity:.55;
+  cursor:wait;
+  transform:translateY(-50%)
+}
+.choice-input-wrap.is-enhancing .choice-input {
+  background:var(--artifact-mist);
+  cursor:wait
+}
+.choice-input-wrap.is-enhancing .choice-count {
+  visibility:hidden
+}
+.choice-input-wrap.is-enhancing::after {
+  content:'Enhancing…';
+  position:absolute;
+  top:50%;
+  right:40px;
+  z-index:2;
+  padding:3px 7px;
+  border:1px solid var(--artifact-border);
+  border-radius:999px;
+  color:var(--artifact-forest);
+  background:var(--artifact-surface);
+  font-size:11px;
+  font-weight:800;
+  pointer-events:none;
+  transform:translateY(-50%)
+}
+.settings-field input[readonly] {
+  background:var(--artifact-background);
+  color:var(--artifact-muted);
+  cursor:default
 }
 
 /* ---- Template and layout box ---- */
@@ -2572,16 +2653,13 @@ Review, edit, and approve email content.
 <aside class="sidebar" data-guide-section="strip">
 <div class="sidebar-head">
 <span>
-Emails in this brief
+Editing: <span data-editing-label></span>
 </span>
 <span class="head-right">
 <span class="guide-chip" data-guide-chip hidden></span>
-<span class="sidebar-count" data-brief-count>
-6 emails
-</span>
 </span>
 </div>
-<div class="email-list" data-email-list>
+<div class="email-list" data-email-list hidden>
 </div>
 </aside>
 <main class="content">
@@ -2692,7 +2770,7 @@ Email settings
 <span class="field-label">
 Subject line
 </span>
-<span class="field-help">What recipients see first in their inbox. Pick a numbered suggestion or type your own (50 characters max).</span>
+<span class="field-help">What recipients see first in their inbox. Edit it here, or use ✦ to enhance it with AI (50 characters max).</span>
 <div class="choice-list" data-choice-group="subject">
 </div>
 </div>
@@ -2700,7 +2778,7 @@ Subject line
 <span class="field-label">
 Preheader
 </span>
-<span class="field-help">The short preview text shown after the subject in the inbox. Pick a suggestion or type your own.</span>
+<span class="field-help">The short preview text shown after the subject in the inbox. Edit it here, or use ✦ to enhance it with AI.</span>
 <div class="choice-list" data-choice-group="preheader">
 </div>
 </div>
@@ -2728,22 +2806,13 @@ Send date
 <span class="task-error" data-send-date-error aria-live="polite" hidden></span>
 </label>
 </div>
-<div class="settings-field" data-field-wrapper="taskAssignment">
+<label class="settings-field" data-field-wrapper="taskAssignment">
 <span class="field-label">
 Email task
 </span>
-<span class="field-help">Link this email to its task in the tactic. Use + to create a new task.</span>
-<div class="task-control-row">
-<select class="task-select" data-task-select aria-label="Email task">
-<option value="">Select an email task</option>
-</select>
-<button type="button" class="task-add-button" data-task-add aria-label="Create email task">
-<span class="task-spinner" data-task-spinner aria-label="Creating email task" hidden></span>
-+
-</button>
-</div>
-<div class="task-error" data-task-error aria-live="assertive" hidden></div>
-</div>
+<span class="field-help">The tactic task this email belongs to. It cannot be changed here.</span>
+<input type="text" data-task-name readonly aria-label="Email task"/>
+</label>
 <label class="settings-field" data-field-wrapper="ctaUrl">
 <span class="field-label">
 CTA URL
@@ -2896,11 +2965,22 @@ All emails in this brief have been confirmed and pushed to the brief.
       return Array.isArray(parsed) ? parsed[0] : parsed;
     }
 
-    // Handles the result of the host app's launch tool call (Tactic_Email_Studio): the launch tool
-    // never returns email content itself, only tactic identity and process_status, so the tactic_url
-    // from the launch result is always used to call Email_Brief_Schema with path "Pull" to fetch the
-    // latest saved draft. The outcome is broadcast as an 'email-content-loaded' or
-    // 'email-content-load-error' window event for the main app script to consume.
+    // Email_Editor_Utility returns process_flag as the string "true"/"false"; Email_Revision returns
+    // a real boolean. Accept both.
+    function isTrueFlag(value) {
+      return value === true || value === "true";
+    }
+    window.isTrueFlag = isTrueFlag;
+
+    function dispatchLoadError(message) {
+      window.dispatchEvent(new CustomEvent("email-content-load-error", { detail: { message } }));
+    }
+
+    // Handles the result of the host app's launch tool call (Email_Revision): the launch tool never
+    // returns email content itself, only process_flag, msg, tactic_link and task_link. Those two links
+    // are used to call Email_Editor_Utility (process_name "get_email_draft") to fetch the saved
+    // drafts of the one email linked to that task. The outcome is broadcast as an
+    // 'email-content-loaded' or 'email-content-load-error' window event for the main app script.
     app.ontoolresult = async (raw) => {
       console.info("[launch] ontoolresult fired, raw:", raw);
       try {
@@ -2909,67 +2989,50 @@ All emails in this brief have been confirmed and pushed to the brief.
 
         if (!launchResult) {
           console.warn("[launch] launch result was empty, aborting");
-          window.dispatchEvent(new CustomEvent("email-content-load-error", {
-            detail: { message: "Unable to prepare Email Studio for this tactic." },
-          }));
+          dispatchLoadError("Unable to prepare Email Studio for this email.");
           return;
         }
 
-        if (launchResult.process_status !== true) {
-          console.warn("[launch] process_status was not true, aborting", launchResult);
-          window.dispatchEvent(new CustomEvent("email-content-load-error", {
-            detail: { message: "Unable to prepare Email Studio for this tactic." },
-          }));
+        // Email_Revision's error path also returns process_flag true (with a Slack message), so a
+        // missing tactic_link or task_link is treated as a failure and its msg is shown as-is.
+        const tacticUrl = launchResult.tactic_link;
+        const taskLink = launchResult.task_link;
+        if (!isTrueFlag(launchResult.process_flag) || !tacticUrl || !taskLink) {
+          console.warn("[launch] launch result was not usable, aborting", launchResult);
+          dispatchLoadError(launchResult.msg || "Unable to prepare Email Studio for this email.");
           return;
         }
 
-        const tacticUrl = launchResult.tactic_url;
-        if (!tacticUrl) {
-          console.warn("[launch] tactic_url missing from launch result", launchResult);
-          window.dispatchEvent(new CustomEvent("email-content-load-error", {
-            detail: { message: "No tactic link was returned." },
-          }));
-          return;
-        }
-
-        let briefResult;
+        let draftResult;
         try {
-          console.info("[launch] calling Email_Brief_Schema with path Pull, tactic_link:", tacticUrl);
-          const briefRaw = await app.callServerTool({
-            name: "Email_Brief_Schema",
-            arguments: { path: "Pull", tactic_link: tacticUrl, tactic: [{ tactic_link: tacticUrl }] },
+          console.info("[launch] calling Email_Editor_Utility get_email_draft:", tacticUrl, taskLink);
+          const draftRaw = await app.callServerTool({
+            name: "Email_Editor_Utility",
+            arguments: { process_name: "get_email_draft", tactic_link: tacticUrl, task_link: taskLink },
           });
-          console.info("[launch] Email_Brief_Schema raw response:", briefRaw);
+          console.info("[launch] Email_Editor_Utility raw response:", draftRaw);
+          draftResult = unwrapToolResult(draftRaw);
+          console.info("[launch] Email_Editor_Utility unwrapped result:", draftResult);
 
-          if (briefRaw?.isError || briefRaw?.error) {
-            throw new Error("Email_Brief_Schema returned an error");
-          }
-
-          briefResult = unwrapToolResult(briefRaw);
-          console.info("[launch] Email_Brief_Schema unwrapped result:", briefResult);
-
-          if (!briefResult || briefResult.process_flag !== true) {
-            throw new Error("Email_Brief_Schema did not confirm success");
+          if (draftRaw?.isError || draftRaw?.error || !draftResult || !isTrueFlag(draftResult.process_flag)) {
+            dispatchLoadError((draftResult && draftResult.msg) || "Unable to load the email draft.");
+            return;
           }
         } catch (error) {
-          console.error("[launch] Email_Brief_Schema call threw", error);
-          window.dispatchEvent(new CustomEvent("email-content-load-error", {
-            detail: { message: "Unable to load the email brief." },
-          }));
+          console.error("[launch] Email_Editor_Utility call threw", error);
+          dispatchLoadError("Unable to load the email draft.");
           return;
         }
 
-        if (!briefResult || !Array.isArray(briefResult.emails) || !briefResult.emails.length) {
-          console.warn("[launch] brief result had no usable emails array", briefResult);
-          window.dispatchEvent(new CustomEvent("email-content-load-error", {
-            detail: { message: "No email content was returned for this tactic." },
-          }));
+        if (!Array.isArray(draftResult.saved_email_content) || !draftResult.saved_email_content.length) {
+          console.warn("[launch] draft result had no saved_email_content", draftResult);
+          dispatchLoadError(draftResult.msg || "Email Content missing");
           return;
         }
 
-        console.info("[launch] dispatching email-content-loaded with", briefResult.emails.length, "emails");
+        console.info("[launch] dispatching email-content-loaded with", draftResult.saved_email_content.length, "draft(s)");
         window.dispatchEvent(new CustomEvent("email-content-loaded", {
-          detail: { ...briefResult, _launchTacticUrl: tacticUrl },
+          detail: { ...draftResult, _launchTacticUrl: tacticUrl, _launchTaskLink: taskLink },
         }));
       } catch (error) {
         console.error("[launch] ontoolresult threw unexpectedly", error);
@@ -4058,17 +4121,12 @@ All emails in this brief have been confirmed and pushed to the brief.
       }).join('');
       list.scrollLeft = scrollLeft;
 
-      list.querySelectorAll('[data-email-id]').forEach((button) => {
-        button.addEventListener('click', () => {
-          hasPickedEmail = true;
-          currentId = button.dataset.emailId;
-          render();
-        });
-      });
-
-      document.querySelectorAll('[data-brief-count]').forEach((element) => {
-        element.textContent = emails.length + ' email' + (emails.length === 1 ? '' : 's');
-      });
+      // Only one email is loaded, so the strip itself stays hidden and the header names that email.
+      const email = current();
+      const editingLabel = document.querySelector('[data-editing-label]');
+      if (editingLabel && email) {
+        editingLabel.textContent = email.emailLabel || email.displayLabel || email.title || '';
+      }
     }
 
     // Renders the template-selector tabs for the current email's render family and wires up clicks to
@@ -4110,24 +4168,16 @@ All emails in this brief have been confirmed and pushed to the brief.
       });
     }
 
-    // Renders the subject-line and preheader "choice" editors: a text input showing the current value
-    // (with its character count inside the input, at the right end) plus numbered buttons for each
-    // AI-generated option. Wires up typing (which updates the value and character count live) and
-    // clicking a numbered option (which selects that option's text outright).
+    // Renders the subject-line and preheader editors: a plain text input showing the current value,
+    // with its character count and an "Enhance with AI" button inside the input at the right end.
+    // Typing updates the value and the count live; the button rewrites the text with AI.
     function renderChoices() {
       document.querySelectorAll('[data-choice-group]').forEach((group) => {
         const field = group.dataset.choiceGroup;
-        const options = current()[field + 'Options'] || [];
         const label = field === 'subject' ? 'Subject line' : 'Preheader';
         const value = current()[field] || '';
-        const matchedIndex = options.indexOf(value);
-        const isCustomSelected = value !== '' && matchedIndex === -1;
 
-        const numbersMarkup = options.length
-          ? '<div class="choice-footer"><span class="choice-suggest">Suggestions</span><div class="choice-numbers" role="group" aria-label="' + label + ' options">' + options.map((option, index) => '<button type="button" class="choice-number" aria-pressed="' + (index === matchedIndex ? 'true' : 'false') + '" data-animate="' + (choiceAnimationField === field && index === matchedIndex ? 'true' : 'false') + '" data-choice-field="' + field + '" data-choice-value="' + esc(option) + '" aria-label="' + label + ' option ' + (index + 1) + '">' + (index === matchedIndex ? '✓' : (index + 1)) + '</button>').join('') + '</div></div>'
-          : '';
-
-        group.innerHTML = '<div class="choice-editor"><div class="choice-input-wrap"><input type="text" class="choice-input" value="' + esc(value) + '" data-choice-input="' + field + '" aria-label="' + label + '"><span class="choice-input-check' + (isCustomSelected ? ' show' : '') + '" data-choice-input-check aria-hidden="true" title="Edited text is the selected ' + label.toLowerCase() + '">✓</span><span class="choice-count' + (value.length > 50 ? ' over' : '') + '" data-choice-count="' + field + '" aria-hidden="true">' + value.length + '/50</span></div>' + numbersMarkup + '</div>';
+        group.innerHTML = '<div class="choice-editor"><div class="choice-input-wrap"><input type="text" class="choice-input" value="' + esc(value) + '" data-choice-input="' + field + '" aria-label="' + label + '"><span class="choice-count' + (value.length > 50 ? ' over' : '') + '" data-choice-count="' + field + '" aria-hidden="true">' + value.length + '/50</span><button type="button" class="ai-button" data-enhance-field="' + field + '" title="Enhance with AI" aria-label="Enhance ' + label.toLowerCase() + ' with AI">✦</button></div></div>';
 
         const input = group.querySelector('[data-choice-input]');
         input.addEventListener('input', () => {
@@ -4136,28 +4186,80 @@ All emails in this brief have been confirmed and pushed to the brief.
           const count = group.querySelector('[data-choice-count]');
           count.textContent = input.value.length + '/50';
           count.classList.toggle('over', input.value.length > 50);
-
-          const liveMatchedIndex = options.indexOf(input.value);
-          group.querySelectorAll('[data-choice-field]').forEach((button, index) => {
-            const isSelected = index === liveMatchedIndex;
-            button.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
-            button.textContent = isSelected ? '✓' : String(index + 1);
-          });
-
-          const checkIcon = group.querySelector('[data-choice-input-check]');
-          checkIcon.classList.toggle('show', input.value !== '' && liveMatchedIndex === -1);
         });
 
-        group.querySelectorAll('[data-choice-field]').forEach((button) => {
-          button.addEventListener('click', () => {
-            choiceAnimationField = button.dataset.choiceField;
-            current()[button.dataset.choiceField] = button.dataset.choiceValue;
-            markDirty();
-            render();
-            choiceAnimationField = null;
-          });
-        });
+        const aiButton = group.querySelector('[data-enhance-field]');
+        aiButton.addEventListener('click', () => enhanceChoiceWithAI(field, input, aiButton));
       });
+    }
+
+    // Sends the subject line or preheader to the AI-enhance tool (Email_Studio_Utilities, process
+    // "enhance_with_ai", same call and message format as Brief Builder) and replaces the text with the
+    // rewritten result, marking the email as having unsaved changes.
+    async function enhanceChoiceWithAI(field, input, button) {
+      const label = field === 'subject' ? 'Subject line' : 'Preheader';
+      const status = document.querySelector('[data-settings-status]');
+      const wrap = input.closest('.choice-input-wrap');
+      const originalText = input.value.trim();
+      if (!originalText) {
+        status.textContent = 'Add text to the ' + label.toLowerCase() + ' before enhancing it.';
+        input.focus();
+        return;
+      }
+
+      const emailId = currentId;
+      button.disabled = true;
+      input.readOnly = true;
+      input.setAttribute('aria-busy', 'true');
+      wrap.classList.add('is-enhancing');
+      status.textContent = 'Enhancing ' + label.toLowerCase() + '…';
+
+      let enhancedText = '';
+      try {
+        const contextualMessage = [
+          'Field context: Email ' + label.toLowerCase() + ' (50 characters max)',
+          'Use this context to improve the wording, but do not include the field label or these instructions in the output.',
+          '',
+          'Text to articulate:',
+          originalText,
+        ].join('\n');
+        const raw = await window.tacticEmailStudioApp.callServerTool({
+          name: 'Email_Studio_Utilities',
+          arguments: { process: 'enhance_with_ai', msg: contextualMessage },
+        });
+        const result = parseUtilitiesResponse(raw);
+        enhancedText = result && typeof result.msg === 'string' ? result.msg.trim() : '';
+        if (raw?.isError || raw?.error || !result || result.flag !== true || !enhancedText) {
+          throw new Error('The enhancement tool returned no msg value.');
+        }
+      } catch (error) {
+        console.error(error);
+        enhancedText = '';
+      } finally {
+        button.disabled = false;
+        input.readOnly = false;
+        input.removeAttribute('aria-busy');
+        wrap.classList.remove('is-enhancing');
+      }
+
+      const email = emails.find((item) => item.id === emailId);
+      if (!enhancedText || !email) {
+        status.textContent = 'Could not enhance the ' + label.toLowerCase() + '. Please try again.';
+        input.focus();
+        return;
+      }
+
+      email[field] = enhancedText;
+      if (email.id === currentId) {
+        markDirty();
+        noteProgress('settings');
+        render();
+        document.querySelector('[data-settings-status]').textContent = label + ' enhanced.';
+        const freshInput = document.querySelector('[data-choice-input="' + field + '"]');
+        if (freshInput) {
+          freshInput.focus();
+        }
+      }
     }
 
     // Builds the preview HTML for a pre-event ("promotional") email in one of its three templates
@@ -4820,10 +4922,20 @@ All emails in this brief have been confirmed and pushed to the brief.
       return email.bannerUploadStatus === 'failed';
     }
 
-    // Whether this email is missing its required task assignment, which blocks save/push/build for
-    // every email, regardless of type.
+    // Confirmation and waitlist emails don't show the Email task field at all.
+    function hidesTaskField(email) {
+      const key = String((email && email.emailType) || '').trim().toLowerCase();
+      return ['registration_confirmation', 'confirmation', 'waitlist'].includes(key);
+    }
+
+    // Whether this email is missing its linked task, which blocks save/push/build. The task comes
+    // from the launch (task_link) and can't be changed here, so emails that hide the task field are
+    // never blocked by it.
     function taskAssignmentBlocksAction(email) {
-      return !email.taskId;
+      if (hidesTaskField(email)) {
+        return false;
+      }
+      return !email.taskId && !email.taskLink;
     }
 
     // Whether this email is missing its required send date, which blocks save/push/build for every
@@ -4978,44 +5090,16 @@ All emails in this brief have been confirmed and pushed to the brief.
       }
     }
 
-    // Populates and updates the task-assignment dropdown in the settings panel with tasks not already
-    // claimed by another email, selects the current email's assigned task, and reflects
-    // in-progress/error state on the "create task" control.
+    // Shows the email's linked task title read-only in the settings panel. Confirmation and waitlist
+    // emails hide the field entirely.
     function renderTaskControl(email) {
       const wrapper = document.querySelector('[data-field-wrapper="taskAssignment"]');
       if (!wrapper) {
         return;
       }
 
-      const select = wrapper.querySelector('[data-task-select]');
-      const addButton = wrapper.querySelector('[data-task-add]');
-      const spinner = wrapper.querySelector('[data-task-spinner]');
-      const errorEl = wrapper.querySelector('[data-task-error]');
-      const inFlight = Boolean(email.taskAssignInFlight);
-
-      const availableTasks = tacticTasks.filter(
-        (task) => !isTaskAssignedElsewhere(task.task_id, email.id)
-      );
-
-      const optionsMarkup = ['<option value="">Select an email task</option>']
-        .concat(availableTasks.map((task) =>
-          '<option value="' + esc(task.task_id) + '">' + esc(task.task_name) + '</option>'
-        ))
-        .join('');
-
-      select.innerHTML = optionsMarkup;
-      select.value = email.taskId || '';
-      select.disabled = inFlight;
-      addButton.disabled = inFlight;
-      spinner.hidden = !inFlight;
-
-      if (email.taskAssignError) {
-        errorEl.textContent = email.taskAssignError;
-        errorEl.hidden = false;
-      } else {
-        errorEl.textContent = '';
-        errorEl.hidden = true;
-      }
+      wrapper.hidden = hidesTaskField(email);
+      wrapper.querySelector('[data-task-name]').value = email.taskName || email.taskLink || '';
     }
 
     // Populates the settings panel's simple fields (reply-to, from name, send date, CTA URL) for the
@@ -5296,7 +5380,7 @@ All emails in this brief have been confirmed and pushed to the brief.
 
       if (guide.field) {
         const fieldTarget = guide.field === 'task'
-          ? document.querySelector('[data-task-select]')
+          ? document.querySelector('[data-task-name]')
           : guide.field === 'banner'
             ? document.querySelector('[data-banner-input]')
             : document.querySelector('[data-field="' + guide.field + '"]');
@@ -5801,7 +5885,7 @@ All emails in this brief have been confirmed and pushed to the brief.
       settingsBody.addEventListener('input', settingsTouched);
       settingsBody.addEventListener('change', settingsTouched);
       settingsBody.addEventListener('click', (event) => {
-        if (event.target.closest('.choice-number, [data-task-add]')) {
+        if (event.target.closest('[data-enhance-field]')) {
           settingsTouched();
         }
       });
@@ -6281,6 +6365,26 @@ All emails in this brief have been confirmed and pushed to the brief.
       email.taskLink = data.task_link || email.taskLink;
       email.taskName = data.task_name || email.taskName;
 
+      // Revision restrictions and scheduling flags from Email_Editor_Utility. Accepted and kept for
+      // now; nothing in the UI enforces them yet.
+      const flag = (value) => value === true || value === 'true';
+      email.restrictions = {
+        audienceSecured: flag(data.restrictions_audience_secured),
+        sendWithin24Hours: flag(data.restrictions_send_within_24_hours),
+        templateLocked: flag(data.restrictions_template_locked),
+        layoutLocked: flag(data.restrictions_layout_locked),
+        copyEditingAllowed: flag(data.restrictions_copy_editing_allowed),
+        ctaTextEditingAllowed: flag(data.restrictions_cta_text_editing_allowed),
+        ctaDestinationLocked: flag(data.restrictions_cta_destination_locked),
+        preserveSendSchedule: flag(data.restrictions_preserve_send_schedule),
+      };
+      email.emailSchedule = flag(data.email_schedule);
+      email.audienceSecured = flag(data.audience_secured);
+      email.sendDatetime = data.send_datetime || email.sendDatetime || '';
+      email.draftDatetime = data.draft_datetime || email.draftDatetime || '';
+      email.emailTemplateFound = data.email_template_found;
+      email.emailLayoutFound = data.email_layout_found;
+
       email.tokens = {
         recipient_greeting: email.salutation,
         body_para_1: email.bodyPara1,
@@ -6456,106 +6560,6 @@ All emails in this brief have been confirmed and pushed to the brief.
         if (targetEmail.saveStatus !== 'saving') {
           targetEmail.saveStatus = 'idle';
         }
-        render();
-      }
-    }
-
-    // Handles picking an existing tactic task from the task-assignment dropdown: stores the chosen
-    // task's id/name/link on the current email, marks it dirty, and re-renders.
-    function handleTaskSelectChange(event) {
-      const email = current();
-      if (!email) {
-        return;
-      }
-
-      const selectedId = event.target.value;
-      const matched = tacticTasks.find((task) => task.task_id === selectedId);
-
-      email.taskId = matched ? matched.task_id : '';
-      email.taskName = matched ? (matched.task_name || '') : '';
-      email.taskLink = matched ? (matched.task_link || '') : '';
-      email.taskAssignError = '';
-      markDirty();
-      render();
-    }
-
-    // Handles clicking "Create task": calls Email_Studio_Utilities (process "add_task") to create a
-    // new email task for the current tactic, adds it to the local tacticTasks list, assigns it to the
-    // current email, saves the email immediately, and records an error on failure. Uses a per-request
-    // token to discard stale results if the user navigates away before this call finishes.
-    async function handleTaskCreateClick() {
-      const email = current();
-      if (!email || email.taskAssignInFlight) {
-        return;
-      }
-
-      const emailId = email.id;
-      const requestToken = Symbol('taskAssign');
-
-      email.taskAssignToken = requestToken;
-      email.taskAssignInFlight = true;
-      email.taskAssignError = '';
-      render();
-
-      try {
-        const result = await window.tacticEmailStudioApp.callServerTool({
-          name: 'Email_Studio_Utilities',
-          arguments: {
-            process: 'add_task',
-            tactic_link: tacticLink,
-            task_type: 'email',
-            task_label: email.emailLabel,
-          },
-        });
-
-        const response = parseUtilitiesResponse(result);
-        const targetEmail = emails.find((item) => item.id === emailId);
-
-        if (!targetEmail || targetEmail.taskAssignToken !== requestToken) {
-          return;
-        }
-
-        if (
-          result?.isError ||
-          result?.error ||
-          !response ||
-          response.flag !== true ||
-          !response.task_id
-        ) {
-          throw new Error(response?.msg || 'Unable to create the email task. Please try again.');
-        }
-
-        const newTask = {
-          task_id: response.task_id,
-          task_link: response.task_link || '',
-          task_name: response.task_name || email.emailLabel || '',
-        };
-
-        if (!tacticTasks.some((task) => task.task_id === newTask.task_id)) {
-          tacticTasks.push(newTask);
-        }
-
-        targetEmail.taskId = newTask.task_id;
-        targetEmail.taskLink = newTask.task_link;
-        targetEmail.taskName = newTask.task_name;
-        targetEmail.taskAssignInFlight = false;
-        targetEmail.taskAssignError = '';
-        targetEmail.dirty = true;
-        if (targetEmail.saveStatus !== 'saving') {
-          targetEmail.saveStatus = 'idle';
-        }
-        render();
-
-        await saveEmailById(emailId);
-      } catch (error) {
-        const targetEmail = emails.find((item) => item.id === emailId);
-
-        if (!targetEmail || targetEmail.taskAssignToken !== requestToken) {
-          return;
-        }
-
-        targetEmail.taskAssignInFlight = false;
-        targetEmail.taskAssignError = error.message || 'Unable to create the email task. Please try again.';
         render();
       }
     }
@@ -7371,139 +7375,101 @@ All emails in this brief have been confirmed and pushed to the brief.
       });
     }
 
-    // Groups a flat array of email brief rows (which may hold multiple saved versions per sequence)
-    // by sequence number, each group sorted most-recent-first by draft_datetime, so index 0 of any
-    // group is always the latest saved version for that email.
-    function groupVariantsBySequence(rows) {
-      const bySequence = new Map();
-      // Each Mongo document wraps its email(s) in an `emails` array; unwrap to flat email rows.
-      const flatRows = (rows || []).flatMap((row) =>
-        Array.isArray(row?.emails) ? row.emails : [row]
-      );
-      flatRows.forEach((row) => {
-        const key = Number(row.sequence);
-        if (!bySequence.has(key)) {
-          bySequence.set(key, []);
-        }
-        bySequence.get(key).push(row);
-      });
-      bySequence.forEach((group) => {
-        group.sort((a, b) => new Date(b.draft_datetime || 0) - new Date(a.draft_datetime || 0));
-      });
-      return bySequence;
+    // The Email Send task link this app was launched for (from Email_Revision's task_link). It is
+    // sent with every Email_Editor_Utility "get_email_draft" call.
+    let launchTaskLink = '';
+
+    // Turns a list of brief tabs into the { tab_id, tab_title } shape the push/build/approve code uses.
+    // Email_Editor_Utility names the title tab_name; older payloads name it tab_title.
+    function normalizeBriefTabs(list) {
+      if (!Array.isArray(list)) {
+        return null;
+      }
+      return list
+        .filter(Boolean)
+        .map((tab) => ({ tab_id: tab.tab_id || '', tab_title: tab.tab_title || tab.tab_name || '' }));
     }
 
-    // Collects tactic identity (link, title, author, marketo program) and the full list of tactic
-    // tasks out of a set of raw rows. Just like each email comes back as its own Mongo document
-    // ({ emails: [email] }), each tactic task comes back as its own document too
-    // ({ tactic: [{ ...tacticIdentity, tactic_tasks: [oneTask] }] }), repeating the same tactic
-    // identity fields. So every row's `tactic` array is scanned, tactic identity is taken from
-    // whichever entry has it first, and every entry's tactic_tasks are merged together (de-duplicated
-    // by task_id) to recover the full task list.
-    function collectTacticInfo(rows) {
-      const tacticEntries = (rows || []).flatMap((row) =>
-        Array.isArray(row?.tactic) ? row.tactic : []
-      );
-      const tasksById = new Map();
-      tacticEntries.forEach((entry) => {
-        (Array.isArray(entry?.tactic_tasks) ? entry.tactic_tasks : []).forEach((task) => {
-          if (task && task.task_id) {
-            tasksById.set(task.task_id, task);
-          }
-        });
-      });
-      const firstEntry = tacticEntries.find(Boolean) || {};
-
-      return {
-        tacticLink: firstEntry.tactic_link || '',
-        tacticTasks: Array.from(tasksById.values()),
-        tacticTitle: firstEntry.tactic_title || '',
-        taskAuthor: firstEntry.task_author || '',
-        marketoProgramId: firstEntry.marketo_program_id || '',
-      };
+    // Returns the saved drafts of the one email this app edits, newest first by draft_datetime. Rows
+    // for the launched task are preferred; if none carry a matching task_link, all rows are used.
+    function draftRowsFor(payload) {
+      const rows = (Array.isArray(payload && payload.saved_email_content) ? payload.saved_email_content : [])
+        .flatMap((row) => (Array.isArray(row?.emails) ? row.emails : [row]))
+        .filter(Boolean);
+      const forTask = launchTaskLink ? rows.filter((row) => row.task_link === launchTaskLink) : [];
+      return (forTask.length ? forTask : rows)
+        .slice()
+        .sort((left, right) => new Date(right.draft_datetime || 0) - new Date(left.draft_datetime || 0));
     }
 
-    // Updates the module-level tacticLink/tacticTasks/tacticTitle/taskAuthor from a server response
-    // that may carry them directly (tactic_link) or nested inside the `tactic` array of the top-level
-    // response and/or of each per-email row (see collectTacticInfo).
-    function applyMetadataFromResponse(response) {
-      if (!response) {
-        return;
-      }
-      if (response.tactic_link) {
-        tacticLink = response.tactic_link;
-      }
+    // Reads tactic identity and brief info out of an Email_Editor_Utility "get_email_draft" response.
+    // The values come from the `tactic` array (tactic_link, tactic_marketo_program, brief_document_id,
+    // tactic_author, and the brief tabs if sent there), falling back to the top level (document_tabs)
+    // and, for the tactic name, to the saved email itself.
+    function applyDraftMetadata(payload, rows) {
+      const tacticList = Array.isArray(payload.tactic) ? payload.tactic : [payload.tactic];
+      const entry = tacticList.find(Boolean) || {};
+      const firstRow = rows[0] || {};
 
-      const rawRows = Array.isArray(response.emails) ? response.emails : [];
-      const tacticInfo = collectTacticInfo([{ tactic: response.tactic }, ...rawRows]);
+      tacticLink = entry.tactic_link || payload.tactic_link || firstRow.tactic_link || tacticLink;
+      briefDocumentId = entry.brief_document_id || payload.brief_document_id || briefDocumentId;
+      marketoProgramId = entry.marketo_program_id || entry.tactic_marketo_program || payload.marketo_program_id || marketoProgramId;
+      tacticTitle = entry.tactic_title || entry.tactic_name || firstRow.tactic_name || tacticTitle;
+      taskAuthor = entry.task_author || entry.tactic_author || taskAuthor;
 
-      if (tacticInfo.tacticLink) {
-        tacticLink = tacticInfo.tacticLink;
-      }
-      if (tacticInfo.tacticTasks.length) {
-        tacticTasks = tacticInfo.tacticTasks;
-      }
-      if (tacticInfo.tacticTitle) {
-        tacticTitle = tacticInfo.tacticTitle;
-      }
-      if (tacticInfo.taskAuthor) {
-        taskAuthor = tacticInfo.taskAuthor;
+      const tabs = normalizeBriefTabs(entry.email_brief_tabs)
+        || normalizeBriefTabs(entry.document_tabs)
+        || normalizeBriefTabs(payload.email_brief_tabs)
+        || normalizeBriefTabs(payload.document_tabs);
+      if (tabs) {
+        emailBriefTabs = tabs;
       }
     }
 
-    // Handles clicking "Get saved changes": calls Email_Brief_Schema with path "Pull" to fetch any
-    // previously saved drafts for this tactic, stores each email's saved variants (sorted latest-
-    // first), hydrates each email from its most recent saved variant, runs task auto-assignment for
-    // anything still unassigned, re-renders, and reports how many emails were updated.
+    // Fetches this email's saved drafts with Email_Editor_Utility (process_name "get_email_draft").
+    // Resolves with { response, rows } on success; throws an Error carrying the tool's msg otherwise.
+    async function fetchEmailDraft() {
+      const result = await window.tacticEmailStudioApp.callServerTool({
+        name: 'Email_Editor_Utility',
+        arguments: { process_name: 'get_email_draft', tactic_link: tacticLink, task_link: launchTaskLink },
+      });
+      const response = parseFindStateResponse(result);
+      if (result?.isError || result?.error || !response || !window.isTrueFlag(response.process_flag)) {
+        throw new Error((response && response.msg) || 'Unable to load the email draft.');
+      }
+      const rows = draftRowsFor(response);
+      if (!rows.length) {
+        throw new Error(response.msg || 'Email Content missing');
+      }
+      return { response, rows };
+    }
+
+    // Handles clicking Refresh: fetches the saved drafts again with Email_Editor_Utility
+    // ("get_email_draft"), refreshes the saved-draft picker, and reloads the email from its newest
+    // draft. Unsaved changes are replaced by the saved draft, as before.
     async function refreshSavedChanges() {
       const button = document.querySelector('[data-get-changes]');
       const statusEl = document.querySelector('[data-get-changes-status]');
+      const email = current();
 
-      if (button.disabled) {
+      if (button.disabled || !email) {
         return;
       }
       button.disabled = true;
       statusEl.textContent = 'Pulling saved changes…';
 
       try {
-        const result = await window.tacticEmailStudioApp.callServerTool({
-          name: 'Email_Brief_Schema',
-          arguments: { path: 'Pull', tactic_link: tacticLink, tactic: [{ tactic_link: tacticLink }] },
-        });
-        const response = parseFindStateResponse(result);
-
-        if (result?.isError || result?.error || !response || response.process_flag !== true) {
-          statusEl.textContent = 'Unable to check for saved changes. Please try again.';
-          button.disabled = false;
-          return;
+        const { response, rows } = await fetchEmailDraft();
+        applyDraftMetadata(response, rows);
+        email.savedVariants = rows;
+        hydrateEmailFromSavedState(email, rows[0]);
+        if (!email.taskLink) {
+          email.taskLink = launchTaskLink;
         }
-
-        applyMetadataFromResponse(response);
-
-        const savedEmails = Array.isArray(response.emails) ? response.emails : [];
-        const variantsBySequence = groupVariantsBySequence(savedEmails);
-        let matched = 0;
-
-        emails.forEach((email) => {
-          const candidates = variantsBySequence.get(Number(email.sequence)) || [];
-          email.savedVariants = candidates;
-
-          const saved = candidates[0];
-
-          if (saved) {
-            hydrateEmailFromSavedState(email, saved);
-            matched += 1;
-          }
-        });
-
-        applyDefaultTaskAssignments();
         render();
-
-        statusEl.textContent = matched
-          ? 'Updated ' + matched + ' of ' + emails.length + ' email' + (emails.length === 1 ? '' : 's') + ' with saved changes.'
-          : 'No saved changes found.';
+        statusEl.textContent = 'Updated with the latest saved draft.';
       } catch (error) {
-        statusEl.textContent = 'Unable to check for saved changes. Please try again.';
+        statusEl.textContent = error.message || 'Unable to check for saved changes. Please try again.';
       }
 
       button.disabled = false;
@@ -7533,52 +7499,39 @@ All emails in this brief have been confirmed and pushed to the brief.
     }
 
     // Entry point that bootstraps the app once the module script has loaded email content (the
-    // Email_Brief_Schema "Pull" response from launch): extracts tactic metadata (link, tasks, marketo
-    // program id, title, author) and brief info (document id, tabs) from the event payload, collapses
-    // the pulled rows to the latest saved version per sequence, normalizes and sorts them into the
-    // internal `emails` array (stashing full version history per email for the saved-draft picker),
-    // auto-assigns default tasks, selects the first email, renders, and reveals the studio UI.
+    // Email_Editor_Utility "get_email_draft" response from launch): reads tactic and brief info,
+    // loads the one email from its newest saved draft (keeping every draft for the saved-draft
+    // picker), renders, and reveals the studio UI.
     window.addEventListener('email-content-loaded', (event) => {
       const payload = event.detail || {};
 
-      const rawRows = Array.isArray(payload.emails) ? payload.emails : [];
-      const tacticInfo = collectTacticInfo([{ tactic: payload.tactic }, ...rawRows]);
+      launchTaskLink = payload._launchTaskLink || '';
+      tacticLink = payload._launchTacticUrl || '';
+      const rows = draftRowsFor(payload);
+      applyDraftMetadata(payload, rows);
 
-      tacticLink =
-        tacticInfo.tacticLink ||
-        payload._launchTacticUrl ||
-        payload.tactic_link ||
-        payload.tacticLink ||
-        '';
-      tacticTasks = tacticInfo.tacticTasks;
-      briefDocumentId = payload.brief_document_id || '';
-      emailBriefTabs = payload.email_brief_tabs !== undefined ? payload.email_brief_tabs : null;
-      marketoProgramId = tacticInfo.marketoProgramId;
-      tacticTitle = tacticInfo.tacticTitle;
-      taskAuthor = tacticInfo.taskAuthor;
-
-      const variantsBySequence = groupVariantsBySequence(rawRows);
-      const rows = Array.from(variantsBySequence.values()).map((group) => group[0]);
-
-      const sortedRows = rows
-        .slice()
-        .sort((left, right) =>
-          emailDisplayRank(left.email_type) - emailDisplayRank(right.email_type)
-          || Number(left.sequence) - Number(right.sequence));
-
-      emails = sortedRows.map(normalizeEmail);
-      if (!emails.length) {
-        showLoadError('No email content was returned for this tactic.');
+      if (!rows.length) {
+        showLoadError(payload.msg || 'Email Content missing');
         return;
       }
-      emails.forEach((email, index) => {
-        // normalizeEmail doesn't know about the saved `state` field, so without this every email
-        // would start as "Browsing" on load even if it was already confirmed/built/approved.
-        hydrateEmailFromSavedState(email, sortedRows[index]);
-        email.savedVariants = variantsBySequence.get(Number(email.sequence)) || [];
-      });
-      applyDefaultTaskAssignments();
-      currentId = emails[0].id;
+
+      const email = normalizeEmail(rows[0]);
+      // normalizeEmail doesn't know about the saved `state` field, so without this the email would
+      // start as "Not saved" even if it was already pushed, built or approved.
+      hydrateEmailFromSavedState(email, rows[0]);
+      email.savedVariants = rows;
+      if (!email.taskLink) {
+        email.taskLink = launchTaskLink;
+      }
+
+      // The email is already tied to its task, so the task list is just that task.
+      tacticTasks = email.taskId
+        ? [{ task_id: email.taskId, task_link: email.taskLink, task_name: email.taskName }]
+        : [];
+
+      emails = [email];
+      currentId = email.id;
+      hasPickedEmail = true;
       render();
 
       emailContentReady = true;
@@ -7627,8 +7580,6 @@ All emails in this brief have been confirmed and pushed to the brief.
         handleBannerInput();
       }
     });
-    document.querySelector('[data-task-select]').addEventListener('change', handleTaskSelectChange);
-    document.querySelector('[data-task-add]').addEventListener('click', handleTaskCreateClick);
     document.querySelector('[data-saved-draft-select]').addEventListener('change', handleSavedDraftSelectChange);
 
     // Builds the on-demand "?" walkthrough: a fixed, manually-triggered driver.js tour that explains

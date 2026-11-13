@@ -51,18 +51,25 @@ These are MCP apps intended to run inside their host environment, not standalone
 | Tactic Selection | v1 | Initial release. Production and Sandbox are identical. |
 | Brief Builder | v1 | Initial release. Sandbox adds help text for the event fields (time zone, start time, end time, location, title) that Production does not have yet. |
 | Email Studio | v2.3 | Fixed MongoDB logo image in every email preview. See the changelog below. |
-| Email Revision App | Not released | In progress. See below. |
+| Email Revision App | v1 (Sandbox) | Loads one email for revision. Not in Production yet. See the changelog below. |
 
 When Sandbox changes are promoted to Production, bump the version here and add an entry to the app's changelog. Production keeps a single file; earlier versions live in the git history. Put the release date under each changelog entry.
 
-## In Progress
+## Email Revision App Changelog
 
-### Email Revision App
+Sandbox only for now (`Email Revision App/Sandbox/email_revision.html`, started as a copy of Email Studio v2.3). Each commit and push adds the next version here.
 
-Work started 2026-11-13. Not released yet.
+### v1
 
-- Added the `Email Revision App/` folder with a `Sandbox` folder (a `Production` folder will be added on first release).
-- The starting point, `Email Revision App/Sandbox/email_revision.html`, is a copy of the Email Studio v2.3 Sandbox file. Revision features will be built on top of it.
+Committed 2026-11-13.
+
+- **Launch tool:** `Email_Revision` replaces `Tactic_Email_Studio`. The app reads `process_flag`, `msg`, `tactic_link` and `task_link` from it.
+- **Load and Refresh:** `Email_Editor_Utility` (`process_name: "get_email_draft"`) replaces `Email_Brief_Schema` "Pull". It loads the one email linked to `task_link`, shows the newest draft and lists all drafts in the saved-draft picker.
+- **Errors:** the tool's `msg` is shown as-is on the loading screen.
+- **Header:** the email strip is replaced by "Editing: <email label>".
+- **Email task:** read-only, and hidden for confirmation and waitlist emails.
+- **Subject and preheader:** plain text boxes with an "Enhance with AI" (✦) button (`Email_Studio_Utilities`, `process: "enhance_with_ai"`).
+- **Restrictions:** the `restrictions_*` flags are stored but not enforced yet.
 
 ## Email Studio Changelog
 
