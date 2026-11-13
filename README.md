@@ -42,6 +42,16 @@ These are MCP apps intended to run inside their host environment, not standalone
 
 When Sandbox changes are promoted to Production, bump the version here and add an entry to the app's changelog. Production keeps a single file; earlier versions live in the git history. Put the release date under each changelog entry.
 
+## In Progress
+
+### Email Revision App
+
+Work started 2026-11-13. Not released yet.
+
+- Added the `Email Revision App/` folder with `Sandbox` and `Production` folders.
+- First development copy at `Email Revision App/Sandbox/email_revision.html`.
+- Production has no file yet. It will get one when the app is first promoted from Sandbox.
+
 ## Email Studio Changelog
 
 ### v2.3
