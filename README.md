@@ -117,6 +117,10 @@ Committed 2026-11-14.
 - `normalizeBodyFragment` now removes `<p>` wrappers directly inside a `<li>` (`<li><p>text</p></li>` becomes `<li>text</li>`). Several paragraphs in one bullet are joined with `<br>`, and a `dir` attribute moves to the `<li>`. Nested lists are left as they are.
 - Applies to `body_para_1`, `2` and `3` everywhere they are sent (Save_Revision and every Email_Release_Pipeline call), and to drafts on load and AI suggestions. The preview looks the same.
 
+**After approval: no pop-up, plain confirmation**
+- The "Email approved" notice that opened after a pre-event or post-event approval (added in v1.0) is removed entirely: its markup, styles, open/close code and Esc handler.
+- The progress bar's next-step line for an approved email no longer says "Next: Update audience in your brief and approve it in your tactic". It now reads "This email has been approved. No further action is needed." as plain status text, without "Next:".
+
 ### v1.1
 
 Committed 2026-11-14.
