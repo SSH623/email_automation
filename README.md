@@ -44,6 +44,19 @@ Use the `Production` copy for the deployed app and the `Sandbox` copy for develo
 
 These are MCP apps intended to run inside their host environment, not standalone web pages. They connect to Workato MCP tools to retrieve tactic and email data and to perform brief-generation and enhancement steps. The HTML files load app and editor dependencies from CDNs, so the host needs network access to those dependencies and the configured Workato tools.
 
+## App Setup
+
+Each app's MCP UI resource must allow the external domains the app loads from. The browser blocks any domain that isn't allowed. Blocked scripts stop the app from loading. Blocked images show their alt text instead, for example "Event banner". Allowing these domains is part of the server configuration, not the HTML, so check them every time an app is set up or promoted to Production.
+
+| Domain | Used for | Apps |
+| --- | --- | --- |
+| `cdn.jsdelivr.net` | MCP Apps SDK (`@modelcontextprotocol/ext-apps`), and the driver.js guided tour (script and stylesheet) | All |
+| `esm.sh` | Tiptap rich text editor (`@tiptap/core`, `starter-kit`, `extension-underline`, `extension-link`) | Email Studio, Email Revision App |
+| `info.mongodb.com` | MongoDB logo and default banner image in the email preview | Email Studio, Email Revision App |
+| Host of the uploaded banner image | The `banner_image_url` returned by `Email_Studio_Utilities` (`process: "banner_upload"`) | Email Studio, Email Revision App |
+
+If an app loads from a new domain, add it to this table and to the app's allowed domains.
+
 ## Versions
 
 | App | Version | Notes |
@@ -51,13 +64,33 @@ These are MCP apps intended to run inside their host environment, not standalone
 | Tactic Selection | v1 | Initial release. Production and Sandbox are identical. |
 | Brief Builder | v1 | Initial release. Sandbox adds help text for the event fields (time zone, start time, end time, location, title) that Production does not have yet. |
 | Email Studio | v2.3 | Fixed MongoDB logo image in every email preview. See the changelog below. |
-| Email Revision App | v1 (Sandbox) | Loads one email for revision. Not in Production yet. See the changelog below. |
+| Email Revision App | v1.1 (Sandbox) | Loads one email for revision, with Enhance with AI on body paragraphs. Not in Production yet. See the changelog below. |
 
 When Sandbox changes are promoted to Production, bump the version here and add an entry to the app's changelog. Production keeps a single file; earlier versions live in the git history. Put the release date under each changelog entry.
 
 ## Email Revision App Changelog
 
 Sandbox only for now (`Email Revision App/Sandbox/email_revision.html`, started as a copy of Email Studio v2.3). Each commit and push adds the next version here.
+
+### v1.1
+
+Committed 2026-11-14.
+
+**Enhance with AI for body paragraphs**
+- Clicking body paragraph 1, 2 or 3 in the content preview opens the editing toolbar with a ✦ (Enhance with AI) button at the end. Other fields do not get it.
+- ✦ opens a small panel under the paragraph with an optional instruction box (for example "make it shorter") and a ✦ button that runs the enhancement. Enter in the box also runs it.
+- Uses `Email_Studio_Utilities` (`process: "enhance_with_ai"`). The prompt includes what the paragraph is for (opening, supporting detail, or closing), asks to improve the wording without changing its intent, and adds the typed instruction when there is one.
+- The prompt tells the AI, in bold caps, to keep every HTML tag, attribute and link exactly as they are and to return HTML only.
+- The suggestion is shown under the paragraph with an "AI generated" label and Discard / Use this buttons. Nothing changes until "Use this" is clicked, and Done still has to be clicked to keep it (Cancel undoes it).
+- Plain-text replies are cleaned up: surrounding blank lines are removed and each block becomes its own paragraph. A tool reply whose JSON is broken by raw line breaks is repaired before reading.
+- A red warning shows when the suggestion drops a link from the original, or when the original had formatting (bold, italic, lists, links) and the reply has none.
+- Escape closes the AI panel first, then the editor.
+
+**Language**
+- All three Enhance with AI prompts (subject line, preheader, body paragraphs) now tell the AI, in bold caps, to reply in the same language as the original text and not to translate it.
+
+**Setup**
+- New shared [App Setup](#app-setup) section listing the external domains each app must allow (`cdn.jsdelivr.net`, `esm.sh`, `info.mongodb.com`, and the uploaded banner host).
 
 ### v1
 
@@ -67,9 +100,10 @@ Committed 2026-11-13.
 - **Load and Refresh:** `Email_Editor_Utility` (`process_name: "get_email_draft"`) replaces `Email_Brief_Schema` "Pull". It loads the one email linked to `task_link`, shows the newest draft and lists all drafts in the saved-draft picker.
 - **Errors:** the tool's `msg` is shown as-is on the loading screen.
 - **Header:** the email strip is replaced by "Editing: <email label>".
-- **Email task:** read-only, and hidden for confirmation and waitlist emails.
-- **Subject and preheader:** plain text boxes with an "Enhance with AI" (✦) button (`Email_Studio_Utilities`, `process: "enhance_with_ai"`).
+- **Email task:** read-only, and hidden for confirmation and waitlist emails. The task dropdown and the "Create email task" button (`add_task`) are removed.
+- **Subject and preheader:** plain text boxes with an "Enhance with AI" (✦) button (`Email_Studio_Utilities`, `process: "enhance_with_ai"`). The numbered Suggestions picker is removed. Each field has help text under it.
 - **Restrictions:** the `restrictions_*` flags are stored but not enforced yet.
+- **Setup:** the banner preview only loads once the image domains are allowed in the app's resource settings. See [App Setup](#app-setup).
 
 ## Email Studio Changelog
 

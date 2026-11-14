@@ -2316,6 +2316,98 @@ html[data-theme=dark] .guide-chip.is-blocker {
   padding:6px 12px
 }
 
+/* ---- Enhance with AI for body paragraphs (✦ in the inline toolbar, suggestion panel below) ---- */
+.inline-toolbar button.inline-ai-toggle {
+  color:var(--artifact-forest);
+  font-weight:900
+}
+.inline-toolbar button.inline-ai-toggle[aria-expanded=true] {
+  border-color:var(--artifact-forest);
+  background:var(--artifact-mist)
+}
+.inline-ai-panel {
+  position:absolute;
+  display:grid;
+  gap:8px;
+  padding:8px;
+  border:1px solid var(--artifact-border-strong);
+  border-radius:8px;
+  background:var(--artifact-surface);
+  pointer-events:auto
+}
+.inline-ai-panel[hidden] {
+  display:none
+}
+.inline-ai-row {
+  display:flex;
+  gap:6px;
+  align-items:center
+}
+.inline-ai-row .choice-input {
+  flex:1 1 auto;
+  min-width:0
+}
+.inline-ai-row .confirm-button,.inline-ai-result-actions .save-button,.inline-ai-result-actions .confirm-button {
+  min-height:32px;
+  padding:6px 12px
+}
+.inline-ai-row .choice-input[readonly] {
+  background:var(--artifact-mist);
+  cursor:wait
+}
+.inline-ai-status {
+  margin:0;
+  color:var(--artifact-muted);
+  font-size:12px
+}
+.inline-ai-status:empty {
+  display:none
+}
+.inline-ai-status.is-warning {
+  color:var(--artifact-danger)
+}
+.inline-ai-result {
+  display:grid;
+  gap:6px;
+  padding:8px;
+  border:1px dashed var(--artifact-border-strong);
+  border-radius:6px;
+  background:var(--artifact-surface-soft)
+}
+.inline-ai-result[hidden] {
+  display:none
+}
+.inline-ai-label {
+  justify-self:start;
+  padding:2px 6px;
+  border-radius:4px;
+  background:var(--artifact-forest);
+  color:var(--artifact-surface);
+  font-size:10px;
+  font-weight:800;
+  letter-spacing:.04em;
+  text-transform:uppercase
+}
+.inline-ai-result-body {
+  color:var(--artifact-slate);
+  font-size:14px;
+  line-height:1.5
+}
+.inline-ai-result-body p {
+  margin:0 0 8px
+}
+.inline-ai-result-body p:last-child {
+  margin-bottom:0
+}
+.inline-ai-result-body a {
+  color:var(--artifact-forest)
+}
+.inline-ai-result-actions {
+  display:flex;
+  gap:6px;
+  justify-content:flex-end
+}
+
 /* ---- Stronger hover (3px) ---- */
 .email-item:hover,.email-item[aria-current=true] {
   border-color:var(--artifact-forest);
@@ -4218,6 +4310,7 @@ All emails in this brief have been confirmed and pushed to the brief.
       try {
         const contextualMessage = [
           'Field context: Email ' + label.toLowerCase() + ' (50 characters max)',
+          '**IMPORTANT: REPLY IN THE SAME LANGUAGE AS THE TEXT BELOW. DO NOT TRANSLATE IT.**',
           'Use this context to improve the wording, but do not include the field label or these instructions in the output.',
           '',
           'Text to articulate:',
@@ -4498,6 +4591,14 @@ All emails in this brief have been confirmed and pushed to the brief.
           actionsTop = blockBottom + gap + height + gap;
         }
       }
+      const aiPanel = inlineEditor.layer.querySelector('[data-inline-ai-panel]');
+      if (aiPanel && !aiPanel.hidden) {
+        const panelWidth = Math.min(Math.max(blockRect.width, 320), canvasRect.width);
+        aiPanel.style.width = panelWidth + 'px';
+        aiPanel.style.left = clamp(blockRect.left - canvasRect.left, 0, Math.max(0, canvasRect.width - panelWidth)) + 'px';
+        aiPanel.style.top = actionsTop + 'px';
+        actionsTop += aiPanel.offsetHeight + gap;
+      }
       const actions = inlineEditor.layer.querySelector('[data-inline-actions]');
       const actionsWidth = actions.offsetWidth;
       actions.style.left = clamp(blockRect.right - canvasRect.left - actionsWidth, 0, Math.max(0, canvasRect.width - actionsWidth)) + 'px';
@@ -4579,11 +4680,265 @@ All emails in this brief have been confirmed and pushed to the brief.
       closeInlineMenus();
     }
 
+    // What each body paragraph is for, sent to the AI-enhance tool as the field context.
+    const AI_PARAGRAPH_FIELDS = {
+      bodyPara1: {
+        label: 'Paragraph 1',
+        context: 'Email body paragraph 1. The opening paragraph, right after the greeting. It introduces the main message of the email and why it matters to the reader.',
+      },
+      bodyPara2: {
+        label: 'Paragraph 2',
+        context: 'Email body paragraph 2. The middle paragraph. It adds supporting detail, value or proof for the main message.',
+      },
+      bodyPara3: {
+        label: 'Paragraph 3',
+        context: 'Email body paragraph 3. The closing paragraph. It wraps up the email and points the reader to the next step.',
+      },
+    };
+
+    // Builds the message for the AI-enhance tool for one body paragraph: its context, the optional
+    // instruction typed by the person, the HTML rules (in bold caps so they are not missed), and the
+    // paragraph's current HTML.
+    function buildParagraphEnhancePrompt(field, html, instruction) {
+      const lines = [
+        'Field context: ' + AI_PARAGRAPH_FIELDS[field].context,
+        'Task: improve and articulate this paragraph better. Do not change the intent of the paragraph. Keep its meaning, facts, names, dates, numbers and links.',
+      ];
+      if (instruction) {
+        lines.push('Additional instruction from the user: ' + instruction);
+      }
+      lines.push(
+        '',
+        '**IMPORTANT: THE TEXT BELOW IS HTML. YOU MUST MAINTAIN THE HTML EXACTLY AS IT IS.**',
+        '**1. KEEP EVERY HTML TAG AND EVERY ATTRIBUTE EXACTLY AS THEY ARE (FOR EXAMPLE <p>, <br>, <strong>, <em>, <u>, <s>, <a href="...">, <ul>, <ol>, <li>, <span>, dir, data-indent, data-text-padding).**',
+        '**2. DO NOT ADD, REMOVE OR RENAME ANY TAG. ONLY REWRITE THE WORDS INSIDE THE TAGS.**',
+        '**3. KEEP EVERY LINK: THE SAME href VALUE, AND THE LINKED WORDS STAY INSIDE THE <a> TAG.**',
+        '**4. RETURN HTML ONLY: THE IMPROVED PARAGRAPH AS HTML, WITH NO MARKDOWN, NO CODE FENCES, NO EXPLANATION AND NO FIELD LABEL.**',
+        '**5. REPLY IN THE SAME LANGUAGE AS THE ORIGINAL TEXT. DO NOT TRANSLATE IT, EVEN IF THE INSTRUCTION FROM THE USER IS IN ANOTHER LANGUAGE.**',
+        'Use this context to improve the wording, but do not include the field label or these instructions in the output.',
+        '',
+        'HTML to articulate:',
+        html
+      );
+      return lines.join('\n');
+    }
+
+    // Turns the AI's reply into paragraph HTML. Strips code fences and surrounding blank lines. If the
+    // reply has HTML tags it is sanitized as-is; if it came back as plain text, each block separated by
+    // a blank line becomes its own <p> and single line breaks become <br>, so no empty lines are left
+    // at the top or bottom of the paragraph.
+    function aiReplyToHtml(text) {
+      const cleaned = String(text || '')
+        .replace(/^\s*```(?:html)?\s*/i, '')
+        .replace(/\s*```\s*$/, '')
+        .replace(/\r\n?/g, '\n')
+        .trim();
+      if (/<\/?(p|br|ul|ol|li|a|strong|em|b|i|u|s|span)\b/i.test(cleaned)) {
+        return normalizeBodyFragment(cleaned);
+      }
+      const html = cleaned
+        .split(/\n\s*\n+/)
+        .map((block) => block.trim())
+        .filter(Boolean)
+        .map((block) => '<p>' + esc(block).replace(/\n/g, '<br>') + '</p>')
+        .join('');
+      return normalizeBodyFragment(html);
+    }
+
+    // Reads the AI-enhance reply. Same as parseUtilitiesResponse, but if the tool's JSON text is broken
+    // by raw line breaks or tabs inside the msg string (which plain JSON.parse rejects), those are
+    // escaped and the text is parsed again.
+    function parseEnhanceResponse(raw) {
+      const parsed = parseUtilitiesResponse(raw);
+      if (parsed && typeof parsed.msg === 'string') {
+        return parsed;
+      }
+      const text = raw?.content?.find((item) => typeof item?.text === 'string')?.text;
+      if (!text) {
+        return parsed;
+      }
+      try {
+        const repaired = text.replace(/"(?:[^"\\]|\\.)*"/gs, (literal) => literal
+          .replace(/\n/g, '\\n')
+          .replace(/\r/g, '\\r')
+          .replace(/\t/g, '\\t'));
+        let result = JSON.parse(repaired);
+        if (result?.result !== undefined) {
+          result = result.result;
+        }
+        return Array.isArray(result) ? result[0] : result;
+      } catch {
+        return parsed;
+      }
+    }
+
+    // Whether a piece of HTML has formatting beyond plain paragraphs and line breaks.
+    function hasInlineFormatting(html) {
+      return /<(a|strong|em|b|i|u|s|ul|ol|li|span)\b/i.test(String(html || ''));
+    }
+
+    // Lists the link targets in a piece of HTML, used to check the AI kept every link.
+    function linkTargets(html) {
+      const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+      return Array.from(doc.querySelectorAll('a[href]')).map((link) => link.getAttribute('href'));
+    }
+
+    // Opens or closes the Enhance with AI panel under the paragraph being edited.
+    function toggleInlineAiPanel(force) {
+      if (!inlineEditor) {
+        return;
+      }
+      const panel = inlineEditor.layer.querySelector('[data-inline-ai-panel]');
+      const toggle = inlineEditor.layer.querySelector('[data-inline-ai-toggle]');
+      if (!panel || !toggle) {
+        return;
+      }
+      const open = typeof force === 'boolean' ? force : panel.hidden;
+      panel.hidden = !open;
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      closeInlineMenus();
+      positionInlineBars();
+      if (open) {
+        panel.querySelector('[data-inline-ai-instruction]').focus();
+        inlineEditor.layer.querySelector('[data-inline-actions]').scrollIntoView({ block: 'nearest' });
+      } else {
+        inlineEditor.editor.commands.focus();
+      }
+    }
+
+    // Sends the paragraph being edited to the AI-enhance tool (Email_Studio_Utilities, process
+    // "enhance_with_ai") with the optional instruction, and shows the result under the paragraph with
+    // an "AI generated" label. Nothing in the paragraph changes until "Use this" is clicked.
+    async function enhanceInlineParagraph() {
+      if (!inlineEditor || !AI_PARAGRAPH_FIELDS[inlineEditor.key]) {
+        return;
+      }
+      const state = inlineEditor;
+      const layer = state.layer;
+      const field = state.key;
+      const label = AI_PARAGRAPH_FIELDS[field].label;
+      const input = layer.querySelector('[data-inline-ai-instruction]');
+      const button = layer.querySelector('[data-inline-ai-run]');
+      const status = layer.querySelector('[data-inline-ai-status]');
+      const result = layer.querySelector('[data-inline-ai-result]');
+      const resultBody = layer.querySelector('[data-inline-ai-result-body]');
+      const originalHtml = sanitizeRichHtml(state.editor.getHTML());
+      const originalText = state.editor.getText().trim();
+
+      status.classList.remove('is-warning');
+      if (!originalText) {
+        status.textContent = 'Add text to ' + label.toLowerCase() + ' before enhancing it.';
+        positionInlineBars();
+        return;
+      }
+
+      const requestToken = Symbol('paragraphEnhance');
+      state.aiToken = requestToken;
+      button.disabled = true;
+      input.readOnly = true;
+      layer.querySelector('[data-inline-ai-panel]').setAttribute('aria-busy', 'true');
+      result.hidden = true;
+      status.textContent = 'Enhancing ' + label.toLowerCase() + '…';
+      positionInlineBars();
+
+      let enhancedHtml = '';
+      try {
+        const raw = await window.tacticEmailStudioApp.callServerTool({
+          name: 'Email_Studio_Utilities',
+          arguments: { process: 'enhance_with_ai', msg: buildParagraphEnhancePrompt(field, originalHtml, input.value.trim()) },
+        });
+        const response = parseEnhanceResponse(raw);
+        const text = response && typeof response.msg === 'string' ? response.msg.trim() : '';
+        if (raw?.isError || raw?.error || !response || response.flag !== true || !text) {
+          throw new Error('The enhancement tool returned no msg value.');
+        }
+        enhancedHtml = aiReplyToHtml(text);
+        if (!new DOMParser().parseFromString(enhancedHtml, 'text/html').body.textContent.trim()) {
+          throw new Error('The enhancement tool returned empty HTML.');
+        }
+      } catch (error) {
+        console.error(error);
+        enhancedHtml = '';
+      }
+
+      if (inlineEditor !== state || state.aiToken !== requestToken) {
+        return;
+      }
+      button.disabled = false;
+      input.readOnly = false;
+      layer.querySelector('[data-inline-ai-panel]').removeAttribute('aria-busy');
+
+      if (!enhancedHtml) {
+        status.textContent = 'Could not enhance ' + label.toLowerCase() + '. Please try again.';
+        positionInlineBars();
+        return;
+      }
+
+      const keptLinks = linkTargets(enhancedHtml);
+      const lostLinks = linkTargets(originalHtml).filter((href) => !keptLinks.includes(href));
+      state.aiSuggestion = enhancedHtml;
+      resultBody.innerHTML = enhancedHtml;
+      result.hidden = false;
+      if (lostLinks.length) {
+        status.textContent = 'The suggestion is missing ' + (lostLinks.length === 1 ? 'a link' : lostLinks.length + ' links') + ' from the original. Check it before using it.';
+        status.classList.add('is-warning');
+      } else if (hasInlineFormatting(originalHtml) && !hasInlineFormatting(enhancedHtml)) {
+        status.textContent = 'The AI returned plain text, so the bold, italic, list or link formatting from the original is not in the suggestion. Check it before using it.';
+        status.classList.add('is-warning');
+      } else {
+        status.textContent = 'Suggestion ready. Click "Use this" to put it in the paragraph.';
+      }
+      positionInlineBars();
+      layer.querySelector('[data-inline-actions]').scrollIntoView({ block: 'nearest' });
+    }
+
+    // "Use this": puts the AI suggestion into the editor. Done still has to be clicked to keep it.
+    function useInlineAiSuggestion() {
+      if (!inlineEditor || !inlineEditor.aiSuggestion) {
+        return;
+      }
+      inlineEditor.editor.commands.setContent(sanitizeRichHtml(inlineEditor.aiSuggestion));
+      discardInlineAiSuggestion('Suggestion added. Click Done to keep it, or Cancel to go back.');
+      inlineEditor.editor.commands.focus('end');
+    }
+
+    // "Discard": hides the AI suggestion and leaves the paragraph as it is.
+    function discardInlineAiSuggestion(message = '') {
+      if (!inlineEditor) {
+        return;
+      }
+      const layer = inlineEditor.layer;
+      inlineEditor.aiSuggestion = '';
+      layer.querySelector('[data-inline-ai-result]').hidden = true;
+      layer.querySelector('[data-inline-ai-result-body]').innerHTML = '';
+      const status = layer.querySelector('[data-inline-ai-status]');
+      status.classList.remove('is-warning');
+      status.textContent = message;
+      positionInlineBars();
+    }
+
     // Builds the overlay holding the floating toolbar (rich fields only) and the Cancel/Done buttons.
-    function createInlineLayer(isRich) {
+    // Body paragraphs also get the ✦ Enhance with AI button and its panel.
+    function createInlineLayer(isRich, key) {
       const layer = document.createElement('div');
       layer.className = 'inline-layer';
       layer.setAttribute('data-inline-layer', '');
+      const aiField = AI_PARAGRAPH_FIELDS[key];
+      const aiToggleMarkup = aiField
+        ? '<span class="inline-divider" aria-hidden="true"></span>'
+          + '<button type="button" class="inline-ai-toggle" data-inline-ai-toggle aria-expanded="false" aria-label="Enhance ' + aiField.label.toLowerCase() + ' with AI" title="Enhance with AI">✦</button>'
+        : '';
+      const aiPanelMarkup = aiField
+        ? '<div class="inline-ai-panel" data-inline-ai-panel hidden role="group" aria-label="Enhance ' + aiField.label.toLowerCase() + ' with AI">'
+          + '<div class="inline-ai-row"><input type="text" class="choice-input" data-inline-ai-instruction placeholder="Optional: e.g. make it shorter, more urgent" aria-label="Instruction for the AI (optional)" autocomplete="off">'
+          + '<button type="button" class="confirm-button" data-inline-ai-run title="Enhance with AI" aria-label="Enhance ' + aiField.label.toLowerCase() + ' with AI">✦</button></div>'
+          + '<p class="inline-ai-status" data-inline-ai-status aria-live="polite"></p>'
+          + '<div class="inline-ai-result" data-inline-ai-result hidden>'
+          + '<span class="inline-ai-label">AI generated</span>'
+          + '<div class="inline-ai-result-body" data-inline-ai-result-body></div>'
+          + '<div class="inline-ai-result-actions"><button type="button" class="save-button" data-inline-ai-discard>Discard</button><button type="button" class="confirm-button" data-inline-ai-use>Use this</button></div>'
+          + '</div></div>'
+        : '';
 
       const toolbarMarkup = isRich
         ? '<div class="inline-toolbar" data-inline-toolbar role="toolbar" aria-label="Text formatting">'
@@ -4603,10 +4958,12 @@ All emails in this brief have been confirmed and pushed to the brief.
           + '</div></span>'
           + '<span class="inline-menu-wrap"><button type="button" data-inline-menu-toggle="link" aria-label="Add hyperlink" title="Add hyperlink">Link</button>'
           + '<div class="inline-menu link" data-inline-menu="link"><input type="url" class="choice-input" data-inline-link-input placeholder="https://example.com" aria-label="Link URL"><button type="button" class="save-button" data-inline-link-apply>Apply link</button></div></span>'
+          + aiToggleMarkup
           + '</div>'
         : '';
 
       layer.innerHTML = toolbarMarkup
+        + aiPanelMarkup
         + '<div class="inline-actions" data-inline-actions>'
         + '<button type="button" class="save-button" data-inline-cancel>Cancel</button>'
         + '<button type="button" class="confirm-button" data-inline-done>Done</button>'
@@ -4627,6 +4984,22 @@ All emails in this brief have been confirmed and pushed to the brief.
         }
         if (event.target.closest('[data-inline-done]')) {
           finishInlineEditor();
+          return;
+        }
+        if (event.target.closest('[data-inline-ai-toggle]')) {
+          toggleInlineAiPanel();
+          return;
+        }
+        if (event.target.closest('[data-inline-ai-run]')) {
+          enhanceInlineParagraph();
+          return;
+        }
+        if (event.target.closest('[data-inline-ai-use]')) {
+          useInlineAiSuggestion();
+          return;
+        }
+        if (event.target.closest('[data-inline-ai-discard]')) {
+          discardInlineAiSuggestion();
           return;
         }
         const commandButton = event.target.closest('[data-inline-command]');
@@ -4661,6 +5034,12 @@ All emails in this brief have been confirmed and pushed to the brief.
         if (event.key === 'Enter' && event.target.matches('[data-inline-link-input]')) {
           event.preventDefault();
           applyInlineLink();
+        }
+        if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey && event.target.matches('[data-inline-ai-instruction]')) {
+          event.preventDefault();
+          if (!event.target.readOnly) {
+            enhanceInlineParagraph();
+          }
         }
       });
       return layer;
@@ -4702,7 +5081,7 @@ All emails in this brief have been confirmed and pushed to the brief.
         throw error;
       }
 
-      const layer = createInlineLayer(true);
+      const layer = createInlineLayer(true, element.dataset.edit);
       canvas.appendChild(layer);
       element.classList.add('is-editing');
       document.querySelector('[data-pencil-layer]').hidden = true;
@@ -4827,9 +5206,12 @@ All emails in this brief have been confirmed and pushed to the brief.
       if (event.key === 'Escape') {
         event.preventDefault();
         const openMenu = inlineEditor.layer.querySelector('[data-inline-menu].show');
+        const aiPanel = inlineEditor.layer.querySelector('[data-inline-ai-panel]');
         if (openMenu) {
           closeInlineMenus();
           inlineEditor.editor.commands.focus();
+        } else if (aiPanel && !aiPanel.hidden) {
+          toggleInlineAiPanel(false);
         } else {
           cancelInlineEditor();
         }
