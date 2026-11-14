@@ -1953,6 +1953,11 @@ html[data-theme=dark] .guide-chip.is-blocker {
   align-content:start;
   min-width:0
 }
+@media(min-width:561px) {
+  .settings-row3.is-two {
+    grid-template-columns:repeat(2,minmax(0,1fr))
+  }
+}
 .choice-input {
   padding-right:104px
 }
@@ -5212,10 +5217,22 @@ This email has been pushed to the brief.
       return email.bannerUploadStatus === 'failed';
     }
 
-    // Confirmation and waitlist emails don't show the Email task field at all.
-    function hidesTaskField(email) {
+    // Confirmation and waitlist emails are sent automatically when someone registers, so they have no
+    // send date or task of their own to pick.
+    function isRegistrationTriggeredEmail(email) {
       const key = String((email && email.emailType) || '').trim().toLowerCase();
       return ['registration_confirmation', 'confirmation', 'waitlist'].includes(key);
+    }
+
+    // Confirmation and waitlist emails don't show the Email task field at all.
+    function hidesTaskField(email) {
+      return isRegistrationTriggeredEmail(email);
+    }
+
+    // The send date sent to the tools. A send date is required, so confirmation and waitlist emails
+    // always send today's date (their Send date field is hidden); every other email sends its own.
+    function effectiveSendDate(email) {
+      return isRegistrationTriggeredEmail(email) ? minimumSendDate(0) : email.sendDate;
     }
 
     // Whether this email is missing its linked task, which blocks save/push/build. The task comes
@@ -5275,6 +5292,7 @@ This email has been pushed to the brief.
     // '' when the send date is fine, 'missing' when empty, 'early' when before the allowed minimum,
     // 'weekend' when the email's rule forbids weekends and the date is a Saturday or Sunday.
     function sendDateProblem(email) {
+      if (isRegistrationTriggeredEmail(email)) return '';
       if (!email.sendDate) return 'missing';
       if (email.sendDate < minimumSendDateFor(email)) return 'early';
       if (sendDateRule(email).noWeekends && isWeekendDate(email.sendDate)) return 'weekend';
@@ -5409,6 +5427,11 @@ This email has been pushed to the brief.
       if (sendDateHelp) {
         sendDateHelp.textContent = 'The day this email goes out (' + sendDateRuleText(email) + ').';
       }
+      // Confirmation and waitlist emails always go out on registration, so their Send date is hidden
+      // (today's date is sent instead) and the row closes up to two columns.
+      const triggered = isRegistrationTriggeredEmail(email);
+      sendDate.closest('label').hidden = triggered;
+      sendDate.closest('.settings-row3').classList.toggle('is-two', triggered);
       document.querySelector('[data-field="ctaUrl"]').value = email.ctaUrl || defaultCtaUrl(email);
       ctaUrlWrapper.hidden = email.template === 'Operational-Update';
       renderBannerControl(email);
@@ -6305,7 +6328,7 @@ This email has been pushed to the brief.
         email_type: email.emailType,
         email_label: email.emailLabel,
         stage: email.stage,
-        due_date: email.sendDate,
+        due_date: effectiveSendDate(email),
 
         selected_subject_line: email.subject,
         selected_preheader_line: email.preheader,
@@ -6483,7 +6506,7 @@ This email has been pushed to the brief.
         banner_image: email.bannerImage || '',
         source_banner_url: email.sourceBannerUrl || '',
         recipient_greeting: email.salutation || '',
-        due_date: email.sendDate || '',
+        due_date: effectiveSendDate(email) || '',
         send_datetime: email.sendDatetime || '',
         task_name: email.taskName || '',
         task_id: email.taskId || '',
@@ -6655,6 +6678,9 @@ This email has been pushed to the brief.
       email.emailType = data.email_type || email.emailType;
       email.emailLabel = data.email_label || email.emailLabel;
       email.sendDate = data.due_date || email.sendDate;
+      if (isRegistrationTriggeredEmail(email)) {
+        email.sendDate = minimumSendDate(0);
+      }
 
       if (subjectOptions.length) {
         email.subjectSourceOptions = subjectOptions;

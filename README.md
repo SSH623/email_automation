@@ -121,6 +121,12 @@ Committed 2026-11-14.
 - The "Email approved" notice that opened after a pre-event or post-event approval (added in v1.0) is removed entirely: its markup, styles, open/close code and Esc handler.
 - The progress bar's next-step line for an approved email no longer says "Next: Update audience in your brief and approve it in your tactic". It now reads "This email has been approved. No further action is needed." as plain status text, without "Next:".
 
+**Confirmation and waitlist emails: no Send date field**
+- These emails are sent automatically on registration, so they have no send date to choose. For `registration_confirmation`, `confirmation` and `waitlist` the Send date field is hidden, and Reply-to and From name share the row as two columns (narrow screens still stack).
+- A send date is still required by the tools, so `due_date` is always today's date for these emails, on every save (Save_Revision) and every Email_Release_Pipeline call. It is worked out when the request is sent, so it never goes stale, and a saved draft's old date is replaced by today's when it loads.
+- The send date rule always passes for these emails: no "Set a send date" warning, and it never blocks Save, Build or Approve.
+- KBYG, cancellation and postponement emails keep their Send date field.
+
 ### v1.1
 
 Committed 2026-11-14.
