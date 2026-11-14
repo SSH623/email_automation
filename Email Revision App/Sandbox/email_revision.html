@@ -3481,6 +3481,30 @@ This email has been pushed to the brief.
       return /[֐-ࣿ]/.test(String(value || ''));
     }
 
+    // The editor saves each bullet as <li><p>text</p></li>. Email clients (Gmail, Outlook) give that
+    // inner <p> their default ~1em top and bottom margin, so lists look double-spaced in the sent email
+    // even though the preview shows them tight. This removes the <p> wrappers directly inside each <li>,
+    // keeping their content: <li><p>text</p></li> becomes <li>text</li>. When a bullet holds several
+    // paragraphs, a <br> is put between them so the line breaks are kept. A dir attribute on the <p> is
+    // moved to the <li>. Nested lists inside a bullet are left as they are.
+    function unwrapListItemParagraphs(root) {
+      root.querySelectorAll('li').forEach((item) => {
+        Array.from(item.children).forEach((child) => {
+          if (child.tagName !== 'P') {
+            return;
+          }
+          if (child.getAttribute('dir') && !item.getAttribute('dir')) {
+            item.setAttribute('dir', child.getAttribute('dir'));
+          }
+          const next = child.nextElementSibling;
+          if (next && next.tagName === 'P') {
+            child.after(document.createElement('br'));
+          }
+          child.replaceWith(...Array.from(child.childNodes));
+        });
+      });
+    }
+
     // Prepares a raw body fragment (plain text or HTML) for storage/display: wraps plain text in a <p>
     // (escaping it and converting newlines to <br>) or sanitizes existing HTML, then tags top-level
     // elements with dir="rtl" if the content is right-to-left.
@@ -3493,6 +3517,7 @@ This email has been pushed to the brief.
         : `<p>${esc(raw).replace(/\r?\n/g, '<br>')}</p>`;
 
       const documentFragment = new DOMParser().parseFromString(html, 'text/html');
+      unwrapListItemParagraphs(documentFragment.body);
 
       if (containsRtl(documentFragment.body.textContent)) {
         Array.from(documentFragment.body.children).forEach((element) => {

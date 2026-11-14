@@ -112,6 +112,11 @@ Committed 2026-11-14.
 - Each time the tour opens, a step is kept only if its section exists and is actually shown, so reminder and confirmation-family emails skip the Template and Layout steps.
 - The "Your progress" step leaves out "push it to the brief" when the Push to brief step is hidden.
 
+**Bullets without an inner paragraph**
+- The editor stores each bullet as `<li><p>text</p></li>`. Email clients give that inner `<p>` its default margin, so lists looked double-spaced in the sent email but tight in the preview.
+- `normalizeBodyFragment` now removes `<p>` wrappers directly inside a `<li>` (`<li><p>text</p></li>` becomes `<li>text</li>`). Several paragraphs in one bullet are joined with `<br>`, and a `dir` attribute moves to the `<li>`. Nested lists are left as they are.
+- Applies to `body_para_1`, `2` and `3` everywhere they are sent (Save_Revision and every Email_Release_Pipeline call), and to drafts on load and AI suggestions. The preview looks the same.
+
 ### v1.1
 
 Committed 2026-11-14.
