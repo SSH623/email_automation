@@ -2214,6 +2214,12 @@ html[data-theme=dark] .guide-chip.is-blocker {
 .inline-menu.link {
   min-width:200px
 }
+/* The link box and the AI instruction box reuse .choice-input, which keeps 104px free on the right for the
+   subject/preheader count and ✦ button. These boxes have neither, so they get normal right padding. */
+.inline-menu.link .choice-input,
+.inline-ai-row .choice-input {
+  padding-right:9px
+}
 .inline-menu.emoji button {
   font-size:18px
 }

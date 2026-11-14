@@ -127,6 +127,10 @@ Committed 2026-11-14.
 - The send date rule always passes for these emails: no "Set a send date" warning, and it never blocks Save, Build or Approve.
 - KBYG, cancellation and postponement emails keep their Send date field.
 
+**Link and AI instruction boxes use their full width**
+- In the body paragraph toolbar, the Link menu's URL box and the Enhance with AI instruction box reused the `choice-input` style, which keeps 104px free on the right for the subject/preheader character count and ✦ button. In the narrow link menu that hid about half the box: text stopped midway and the right side stayed blank.
+- Both boxes now have normal right padding (9px, same as the left), so text runs the full width. The Subject line and Preheader fields are unchanged.
+
 ### v1.1
 
 Committed 2026-11-14.
