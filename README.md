@@ -64,13 +64,13 @@ If an app loads from a new domain, add it to this table and to the app's allowed
 | Tactic Selection | v1 | Initial release. Production and Sandbox are identical. |
 | Brief Builder | v1 | Initial release. Sandbox adds help text for the event fields (time zone, start time, end time, location, title) that Production does not have yet. |
 | Email Studio | v2.3 | Fixed MongoDB logo image in every email preview. See the changelog below. |
-| Email Revision App | v1.2 (Sandbox) | Loads one email for revision, with Enhance with AI on body paragraphs. Saves through `Email_Brief_Schema` "Save_Revision". Not in Production yet. See the changelog below. |
+| Email Revision App | v1.2 (Sandbox) | Loads one email for revision, with Enhance with AI on body paragraphs. Saves through `Email_Brief_Schema` "Save_Revision". Single-email push only, and the CTA URL keeps its UTM parameters. Not in Production yet. See the changelog below. |
 
 When Sandbox changes are promoted to Production, bump the version here and add an entry to the app's changelog. Production keeps a single file; earlier versions live in the git history. Put the release date under each changelog entry.
 
 ## Email Revision App Changelog
 
-Sandbox only for now (`Email Revision App/Sandbox/email_revision.html`, started as a copy of Email Studio v2.3). Each commit and push adds the next version here.
+Sandbox only for now (`Email Revision App/Sandbox/email_revision.html`, started as a copy of Email Studio v2.3). Each push adds the next version here. Commits made between two pushes all belong to the same version and are listed under it.
 
 ### v1.2
 
@@ -89,6 +89,18 @@ Committed 2026-11-14.
 - Only `process_flag` is read from the response. The app does not need the email, brief document or brief tabs back; those come from `Email_Editor_Utility` "get_email_draft".
 - A save succeeds when `process_flag` is `true` (a boolean or the string `"true"`). Otherwise the save is retried once automatically.
 - If the retry also fails, the app shows "Save failed, please try again." This replaces the old "contact MOPs" save message.
+
+**Push to brief is single-email only**
+- The app always edits one email, so the "Push all to brief" option is removed from both the progress bar and the floating next-step button.
+- Push to brief in the progress bar is now a plain button like Build email; the ▾ toggle and its menu are gone, along with their code and styles.
+- A push always sends just the current email with `process_name: "brief"`. `"brief all"` is no longer sent.
+- The "Pushing all…", "Push all to brief" and "push all emails" wording is removed from the labels and hints.
+
+**CTA URL keeps its UTM parameters**
+- Editing `utm_source`, `utm_medium`, `utm_campaign` or `utm_content` in the CTA URL updates that email's UTM value. The new value is what Save_Revision and the release pipeline send, and what gets restored later.
+- When the person leaves the CTA URL field, any of those four that was removed or left empty (e.g. `utm_campaign=`) is put back with its latest known value, and the email is marked as having unsaved changes.
+- A short note under the field ("UTM parameters restored: …") shows for about 5 seconds.
+- Nothing is restored while the URL is not a valid `https://` URL, and a UTM with no known value is not added. Other query parameters are kept.
 
 ### v1.1
 

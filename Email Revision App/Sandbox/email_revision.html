@@ -846,56 +846,6 @@ button:focus-visible,input:focus-visible,[contenteditable=true]:focus-visible {
   opacity:.55;
   cursor:not-allowed
 }
-.split-button {
-  position:relative;
-  display:inline-flex
-}
-.split-button .split-button-main {
-  border-radius:6px 0 0 6px
-}
-.split-button .split-button-toggle {
-  border-radius:0 6px 6px 0;
-  border-left:1px solid rgba(255,255,255,.3);
-  padding:11px 10px;
-  font-size:10px
-}
-.split-button-menu {
-  position:absolute;
-  right:0;
-  bottom:calc(100% + 6px);
-  z-index:10;
-  display:none;
-  min-width:190px;
-  padding:5px;
-  border:1px solid var(--artifact-border);
-  border-radius:8px;
-  background:var(--artifact-surface);
-  box-shadow:var(--artifact-shadow)
-}
-.split-button-menu.show {
-  display:grid;
-  gap:2px
-}
-.split-button-option {
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  width:100%;
-  border:0;
-  background:transparent;
-  color:var(--artifact-slate);
-  text-align:left;
-  border-radius:5px;
-  padding:8px 10px;
-  font-size:12px;
-  font-weight:700
-}
-.split-button-option:hover {
-  background:var(--artifact-surface-soft)
-}
-.split-button-option[aria-checked=true] {
-  color:var(--artifact-forest)
-}
 .approval-wrap {
   position:relative;
   display:inline-flex
@@ -1861,27 +1811,6 @@ body.rich-editor-open {
   color:var(--artifact-background);
   cursor:default
 }
-.tracker-step .split-button-main {
-  border-radius:999px 0 0 999px
-}
-.tracker-step .split-button-toggle {
-  border-left-width:0;
-  border-radius:0 999px 999px 0;
-  padding:7px 10px;
-  font-size:10px
-}
-.tracker-step.is-done .split-button-main {
-  border-radius:999px
-}
-.tracker-step.is-done .split-button-toggle {
-  display:none
-}
-.tracker-step .split-button-menu {
-  top:calc(100% + 6px);
-  bottom:auto;
-  right:auto;
-  left:0
-}
 .tracker-step .approval-popover {
   top:calc(100% + 10px);
   bottom:auto;
@@ -2765,19 +2694,9 @@ Editing: <span data-editing-label></span>
 </div>
 <span class="tracker-line" aria-hidden="true"><span class="tracker-line-fill"></span></span>
 <div class="tracker-step" data-step="push">
-<div class="split-button" data-push-split>
-<button class="step-btn split-button-main" data-confirm type="button">
+<button class="step-btn" data-confirm type="button">
 <span class="step-check" aria-hidden="true">✓</span><span data-step-label>Push to brief</span>
 </button>
-<button class="step-btn split-button-toggle" data-push-toggle type="button" aria-haspopup="true" aria-expanded="false" aria-label="Choose push option">
-<span aria-hidden="true">▾</span>
-</button>
-<div class="split-button-menu" data-push-menu hidden>
-<button type="button" class="split-button-option" data-push-mode="all" role="menuitemradio" aria-checked="false">
-Push All to Brief
-</button>
-</div>
-</div>
 </div>
 <span class="tracker-line" aria-hidden="true"><span class="tracker-line-fill"></span></span>
 <div class="tracker-step" data-step="build">
@@ -2911,6 +2830,7 @@ CTA URL
 </span>
 <span class="field-help">Where the button in the email links to. Must start with https://</span>
 <input aria-label="CTA URL" data-field="ctaUrl" inputmode="url" pattern="https://.+" placeholder="https://mongodb.com" required type="url"/>
+<span class="banner-status" data-cta-utm-note aria-live="polite" hidden></span>
 </label>
 <div class="settings-field banner-control" data-field-wrapper="bannerImage">
 <span class="field-label">
@@ -3486,7 +3406,6 @@ All emails in this brief have been confirmed and pushed to the brief.
     let taskAuthor = '';
     let confirmInFlight = false;
     let buildInFlight = false;
-    let pushMode = 'single';
     let emailContentReady = false;
     let choiceAnimationField = null;
 
@@ -5693,7 +5612,7 @@ All emails in this brief have been confirmed and pushed to the brief.
         if (taskAssignmentBlocksAction(email)) {
           return { section: 'settings', field: 'task', text: 'Select an email task', tone: 'blocker' };
         }
-        return { section: 'push', text: pushMode === 'all' ? 'Push all emails to the brief' : 'Push to brief', tone: 'next' };
+        return { section: 'push', text: 'Push to brief', tone: 'next' };
       }
 
       if (email.saveStatus === 'saving') {
@@ -5800,17 +5719,11 @@ All emails in this brief have been confirmed and pushed to the brief.
       saveButton.disabled =
         email.approved || saving || !email.dirty || taskBlocked || dueDateBlocked || blankBlocked;
 
-      const unconfirmedEmails = emails.filter((item) => !item.confirmed && !isReminderEmail(item));
-      const singleBlocked = email.confirmed || bannerBlocked || taskBlocked || dueDateBlocked || blankBlocked || email.dirty;
-      const allBlocked = !unconfirmedEmails.length || unconfirmedEmails.some(emailPushBlocked);
-      const pushDisabled = confirmInFlight || (pushMode === 'all' ? allBlocked : singleBlocked);
+      const pushBlocked = email.confirmed || bannerBlocked || taskBlocked || dueDateBlocked || blankBlocked || email.dirty;
+      const pushDisabled = confirmInFlight || pushBlocked;
 
       const confirmButton = document.querySelector('[data-confirm]');
       confirmButton.disabled = pushDisabled || email.confirmed || email.built || email.approved;
-      document.querySelector('[data-push-toggle]').disabled = confirmInFlight || email.confirmed || email.built || email.approved;
-      document.querySelectorAll('[data-push-mode]').forEach((option) => {
-        option.setAttribute('aria-checked', option.dataset.pushMode === pushMode ? 'true' : 'false');
-      });
 
       // Reminder emails don't use "Push to brief": hide that step and the connector line before it.
       const pushStep = document.querySelector('[data-step="push"]');
@@ -5831,8 +5744,8 @@ All emails in this brief have been confirmed and pushed to the brief.
       const labels = {
         draft: saving ? 'Saving…' : stage >= 1 ? 'Draft saved' : 'Save draft',
         push: confirmInFlight
-          ? (pushMode === 'all' ? 'Pushing all…' : 'Pushing…')
-          : stage >= 2 ? 'Pushed' : (pushMode === 'all' ? 'Push all to brief' : 'Push to brief'),
+          ? 'Pushing…'
+          : stage >= 2 ? 'Pushed' : 'Push to brief',
         build: buildInFlight ? 'Building…' : stage >= 3 ? 'Built' : 'Build email',
         approve: stage >= 4 ? 'Approved' : 'Approve',
       };
@@ -5841,9 +5754,7 @@ All emails in this brief have been confirmed and pushed to the brief.
           ? (taskBlocked ? 'Select an email task first.' : dueDateBlocked ? sendDatePrompt(email) + ' first.' : blankBlocked ? blankEventFieldsMessage(email) : !email.dirty ? 'Make a change to this email to save a draft.' : '')
           : '',
         push: confirmButton.disabled && stage < 2
-          ? (pushMode === 'all'
-            ? 'Save changes, resolve banner uploads, set send dates, and assign email tasks on every email before pushing all.'
-            : bannerBlocked ? 'Upload a banner image first.'
+          ? (bannerBlocked ? 'Upload a banner image first.'
             : dueDateBlocked ? sendDatePrompt(email) + ' first.'
             : taskBlocked ? 'Select an email task first.'
             : blankBlocked ? blankEventFieldsMessage(email)
@@ -6039,11 +5950,11 @@ All emails in this brief have been confirmed and pushed to the brief.
         };
       }
       if (stage === 1) {
-        // Always pushes just this email; "Push all to brief" stays in the progress bar's menu.
+        // The app edits one email, so the push is always just this email.
         const pushReason = singlePushReason(email);
         return {
           label: confirmInFlight ? 'Pushing…' : 'Push to brief',
-          action: () => pushToBrief('single'),
+          action: pushToBrief,
           disabled: confirmInFlight || Boolean(pushReason) || email.confirmed || email.built || email.approved,
           reason: pushReason,
         };
@@ -6291,8 +6202,69 @@ All emails in this brief have been confirmed and pushed to the brief.
       }
     }
 
+    // The UTM parameters kept on every email, as CTA URL query key -> email field.
+    const CTA_UTM_FIELDS = {
+      utm_source: 'utmSource',
+      utm_medium: 'utmMedium',
+      utm_campaign: 'utmCampaign',
+      utm_content: 'utmContent',
+    };
+
+    // While typing in the CTA URL: a UTM parameter that has a value in the URL becomes the email's
+    // UTM value (the latest known value, used for saving and for restoring later). Empty or missing
+    // parameters are left alone here; they are restored when the field loses focus.
+    function syncUtmsFromCtaUrl(email, value) {
+      let url;
+      try {
+        url = new URL(value);
+      } catch {
+        return;
+      }
+      Object.entries(CTA_UTM_FIELDS).forEach(([param, field]) => {
+        const paramValue = (url.searchParams.get(param) || '').trim();
+        if (paramValue) {
+          email[field] = paramValue;
+        }
+      });
+    }
+
+    // When the CTA URL field loses focus: any UTM parameter that was removed or emptied is put back
+    // from the email's latest known UTM values, and a short note says which ones were restored.
+    function restoreCtaUtms(input) {
+      const email = current();
+      const note = document.querySelector('[data-cta-utm-note]');
+      if (!email || !validHttpsUrl(input.value)) {
+        return;
+      }
+      const url = new URL(input.value);
+      const restored = [];
+      Object.entries(CTA_UTM_FIELDS).forEach(([param, field]) => {
+        const remembered = String(email[field] || '').trim();
+        if (remembered && !(url.searchParams.get(param) || '').trim()) {
+          url.searchParams.set(param, remembered);
+          restored.push(param);
+        }
+      });
+      if (!restored.length) {
+        return;
+      }
+      input.value = url.toString();
+      email.ctaUrl = input.value;
+      markDirty();
+      renderActions(email);
+      if (note) {
+        note.textContent = 'UTM parameters restored: ' + restored.join(', ') + '.';
+        note.hidden = false;
+        window.clearTimeout(restoreCtaUtms.timer);
+        restoreCtaUtms.timer = window.setTimeout(() => {
+          note.hidden = true;
+        }, 5000);
+      }
+    }
+
     // Wires up 'input' handlers for every simple settings field ([data-field] elements): validates the
-    // CTA URL field specially (only committing valid https URLs), and writes every other field's value
+    // CTA URL field specially (only committing valid https URLs, keeping the email's UTM values in step
+    // with the URL, and restoring removed UTM parameters on blur), and writes every other field's value
     // straight onto the current email, marking it dirty.
     function bindFields() {
       document.querySelectorAll('[data-field]').forEach((input) => {
@@ -6303,6 +6275,7 @@ All emails in this brief have been confirmed and pushed to the brief.
             input.setAttribute('aria-invalid', valid ? 'false' : 'true');
             if (valid) {
               current().ctaUrl = input.value;
+              syncUtmsFromCtaUrl(current(), input.value);
               markDirty();
             }
           } else {
@@ -6315,6 +6288,9 @@ All emails in this brief have been confirmed and pushed to the brief.
 
           document.querySelector('[data-settings-status]').textContent = 'Unsaved changes';
         });
+        if (input.dataset.field === 'ctaUrl') {
+          input.addEventListener('blur', () => restoreCtaUtms(input));
+        }
       });
     }
 
@@ -6396,7 +6372,7 @@ All emails in this brief have been confirmed and pushed to the brief.
 
     // Builds the full request body for the Email_Release_Pipeline tool call: tactic/brief identifiers,
     // the target brief tab, the tokenized form of each email to push, and which process to run
-    // ("brief", "brief all", "build", or "approve"). Deep-clones the result via JSON round-trip so the
+    // ("brief", "build", or "approve"). Deep-clones the result via JSON round-trip so the
     // caller gets a plain, detached object.
     function buildReleasePipelineRequest(emailsToPush, tabTitle, options = {}) {
       const briefDocId = options.briefDocumentId !== undefined ? options.briefDocumentId : briefDocumentId;
@@ -7035,12 +7011,9 @@ All emails in this brief have been confirmed and pushed to the brief.
 
     document.querySelector('[data-save]').addEventListener('click', saveCurrent);
 
-    // Returns the list of not-yet-confirmed emails a push action should target: all unconfirmed emails
-    // in "all" mode, or just the current email (if unconfirmed) in "single" mode.
-    function emailsToPushFor(mode) {
-      if (mode === 'all') {
-        return emails.filter((email) => !email.confirmed && !isReminderEmail(email));
-      }
+    // Returns the email a push should target: the current email, if it is not yet confirmed and is not
+    // a reminder email (reminders skip Push to brief). The app edits one email, so there is no "push all".
+    function emailsToPushFor() {
       const email = current();
       return email && !email.confirmed && !isReminderEmail(email) ? [email] : [];
     }
@@ -7157,16 +7130,15 @@ All emails in this brief have been confirmed and pushed to the brief.
       return tabs.length ? (tabs[0].tab_title || '') : '';
     }
 
-    // Pushes the current email (or all unconfirmed emails, per `mode`) to the brief by calling
-    // Email_Release_Pipeline with process_name "brief" (single) or "brief all" (all). Resolves the
-    // target brief tab first, bails out if nothing is eligible or the user cancels the tab picker, and
-    // marks the targeted emails as confirmed and advances to the next unconfirmed email on success.
-    async function pushToBrief(mode) {
+    // Pushes the current email to the brief by calling Email_Release_Pipeline with process_name
+    // "brief". Resolves the target brief tab first, bails out if the email is not eligible or the user
+    // cancels the tab picker, and marks the email as confirmed on success.
+    async function pushToBrief() {
       if (confirmInFlight) {
         return;
       }
 
-      const targets = emailsToPushFor(mode);
+      const targets = emailsToPushFor();
 
       if (!targets.length || targets.some(emailPushBlocked)) {
         return;
@@ -7179,7 +7151,7 @@ All emails in this brief have been confirmed and pushed to the brief.
 
       const targetIds = targets.map((email) => email.id);
       const payload = buildReleasePipelineRequest(targets, tabTitle, {
-        processName: mode === 'all' ? 'brief all' : 'brief',
+        processName: 'brief',
       });
 
       confirmInFlight = true;
@@ -7235,7 +7207,7 @@ All emails in this brief have been confirmed and pushed to the brief.
       }
     }
 
-    document.querySelector('[data-confirm]').addEventListener('click', () => pushToBrief(pushMode));
+    document.querySelector('[data-confirm]').addEventListener('click', () => pushToBrief());
 
     // Handles clicking "Build Email": calls Email_Release_Pipeline with process_name "build" for the
     // current (already-confirmed) email to trigger the actual build, showing progress/error/success
@@ -7697,74 +7669,6 @@ All emails in this brief have been confirmed and pushed to the brief.
 
     initApprovalControls();
 
-    // Closes the "Push to Brief" split-button's mode dropdown (single vs. all).
-    function closePushMenu() {
-      const menu = document.querySelector('[data-push-menu]');
-      const toggle = document.querySelector('[data-push-toggle]');
-      if (!menu || !toggle) {
-        return;
-      }
-      menu.classList.remove('show');
-      menu.hidden = true;
-      toggle.setAttribute('aria-expanded', 'false');
-    }
-
-    // Opens the "Push to Brief" split-button's mode dropdown (single vs. all).
-    function openPushMenu() {
-      const menu = document.querySelector('[data-push-menu]');
-      const toggle = document.querySelector('[data-push-toggle]');
-      if (!menu || !toggle) {
-        return;
-      }
-      menu.hidden = false;
-      menu.classList.add('show');
-      toggle.setAttribute('aria-expanded', 'true');
-    }
-
-    // Wires up the "Push to Brief" split button: toggling its dropdown, selecting a push mode (which
-    // closes the menu, updates `pushMode`, re-renders, and immediately triggers the push), and closing
-    // the dropdown on outside clicks or Escape.
-    function initPushSplitButton() {
-      const toggle = document.querySelector('[data-push-toggle]');
-      const menu = document.querySelector('[data-push-menu]');
-      if (!toggle || !menu) {
-        return;
-      }
-
-      toggle.addEventListener('click', (event) => {
-        event.stopPropagation();
-        if (toggle.disabled) {
-          return;
-        }
-        if (menu.classList.contains('show')) {
-          closePushMenu();
-        } else {
-          openPushMenu();
-        }
-      });
-
-      menu.querySelectorAll('[data-push-mode]').forEach((option) => {
-        option.addEventListener('click', () => {
-          pushMode = option.dataset.pushMode;
-          closePushMenu();
-          render();
-          pushToBrief(pushMode);
-        });
-      });
-
-      document.addEventListener('click', (event) => {
-        if (!event.target.closest('[data-push-split]')) {
-          closePushMenu();
-        }
-      });
-
-      document.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape') {
-          closePushMenu();
-        }
-      });
-    }
-
     // The Email Send task link this app was launched for (from Email_Revision's task_link). It is
     // sent with every Email_Editor_Utility "get_email_draft" call.
     let launchTaskLink = '';
@@ -7955,7 +7859,6 @@ All emails in this brief have been confirmed and pushed to the brief.
         fitStudioHeight();
       });
     }
-    initPushSplitButton();
     document.querySelector('[data-banner-input]').addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
