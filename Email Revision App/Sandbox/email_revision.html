@@ -6472,84 +6472,86 @@ All emails in this brief have been confirmed and pushed to the brief.
       return Array.isArray(parsed) ? parsed[0] : parsed;
     }
 
-    // Builds one entry of the `emails` array for an Email_Brief_Schema call: every editable field of
-    // the email plus which subject/preheader option is currently selected, tagged with the given
-    // lifecycle `state` (draft/briefed/build).
-    function buildEmailBriefFields(email, state) {
+    const defaultFromName = 'MongoDB';
+
+    // Builds one entry of the `revision_email` array for an Email_Brief_Schema "Save_Revision" call:
+    // every editable field of the email, tagged with the given lifecycle `state`
+    // (draft/briefed/build/approved). The subject and preheader are whatever is in their input box.
+    // `draft_datetime` is required by the tool; the recipe sets its own value on save.
+    function buildRevisionEmailFields(email, state) {
       const selectedLayout = layouts.find((item) => item.id === email.layout);
+      const restrictions = email.restrictions || {};
+      const flag = (value) => value === true || value === 'true';
 
       return {
         sequence: email.sequence,
         email_name: email.title || '',
         email_type: email.emailType || '',
         email_label: email.emailLabel || '',
-        due_date: email.sendDate || '',
+        draft_datetime: new Date().toISOString(),
         state,
 
         tactic_name: tacticTitle || '',
         tactic_link: tacticLink,
 
-        task_id: email.taskId || '',
-        task_link: email.taskLink || '',
-        task_name: email.taskName || '',
-
-        subject_line_1: email.subjectSourceOptions[0] || '',
-        subject_line_2: email.subjectSourceOptions[1] || '',
-        subject_line_3: email.subjectSourceOptions[2] || '',
-        selected_subject_line_index: selectedOptionIndex(email.subject, email.subjectSourceOptions),
-        selected_subject_line: email.subject || '',
-
-        preheader_text_1: email.preheaderSourceOptions[0] || '',
-        preheader_text_2: email.preheaderSourceOptions[1] || '',
-        preheader_text_3: email.preheaderSourceOptions[2] || '',
-        selected_preheader_index: selectedOptionIndex(email.preheader, email.preheaderSourceOptions),
-        selected_preheader_line: email.preheader || '',
-
-        from_name: email.fromName || '',
+        from_name: email.fromName || defaultFromName,
         reply_to_email_address: email.replyTo || '',
+
+        subject_line_1: email.subject || '',
+        preheader_text_1: email.preheader || '',
 
         body_para_1: normalizeBodyFragment(email.bodyPara1),
         body_para_2: normalizeBodyFragment(email.bodyPara2),
         body_para_3: normalizeBodyFragment(email.bodyPara3),
-
-        cta_text: email.cta || '',
-        cta_url: email.ctaUrl || '',
-        eyebrow: email.eyebrow || '',
-        event_title: email.eventTitle || '',
-        event_datetime: email.eventDatetime || '',
 
         utm_source: email.utmSource || '',
         utm_medium: email.utmMedium || '',
         utm_campaign: email.utmCampaign || '',
         utm_content: email.utmContent || '',
 
-        template: email.template || '',
+        restrictions_template_locked: flag(restrictions.templateLocked),
+        restrictions_layout_locked: flag(restrictions.layoutLocked),
+        restrictions_copy_editing_allowed: flag(restrictions.copyEditingAllowed),
+        restrictions_cta_text_editing_allowed: flag(restrictions.ctaTextEditingAllowed),
+        email_template_found: flag(email.emailTemplateFound),
+        email_layout_found: flag(email.emailLayoutFound),
+
         layout: selectedLayout ? selectedLayout.name : (email.layout || ''),
+        template: email.template || '',
         banner_image: email.bannerImage || '',
         source_banner_url: email.sourceBannerUrl || '',
         recipient_greeting: email.salutation || '',
+        due_date: email.sendDate || '',
+        send_datetime: email.sendDatetime || '',
+        task_name: email.taskName || '',
+        task_id: email.taskId || '',
+        task_link: email.taskLink || '',
+        eyebrow: email.eyebrow || '',
+        event_title: email.eventTitle || '',
+        event_datetime: email.eventDatetime || '',
+        cta_text: email.cta || '',
+        cta_url: email.ctaUrl || '',
+        restrictions_audience_secured: flag(restrictions.audienceSecured),
+        restrictions_send_within_24_hours: flag(restrictions.sendWithin24Hours),
+        restrictions_cta_destination_locked: flag(restrictions.ctaDestinationLocked),
+        restrictions_preserve_send_schedule: flag(restrictions.preserveSendSchedule),
+        email_schedule: flag(email.emailSchedule),
+        audience_secured: flag(email.audienceSecured),
       };
     }
 
-    // Builds the full request body for an Email_Brief_Schema "Save" call: tactic identity (sent both
-    // top-level and nested, which the tool treats as equivalent) plus the single email being saved,
-    // deep-cloned via JSON round-trip so the caller gets a plain, detached object.
+    // Builds the full request body for an Email_Brief_Schema "Save_Revision" call: the tactic link
+    // plus the single email being saved, deep-cloned via JSON round-trip so the caller gets a plain,
+    // detached object.
     function buildSaveRequest(email, state) {
       return JSON.parse(JSON.stringify({
-        path: 'Save',
+        path: 'Save_Revision',
         tactic_link: tacticLink,
-        brief_document_id: briefDocumentId,
-        tactic: [{
-          tactic_title: tacticTitle || '',
-          tactic_link: tacticLink,
-          marketo_program_id: marketoProgramId,
-          task_author: taskAuthor || '',
-        }],
-        emails: [buildEmailBriefFields(email, state)],
+        revision_email: [buildRevisionEmailFields(email, state)],
       }));
     }
 
-    // Unwraps the raw response from an Email_Brief_Schema "Save" call into a plain result object
+    // Unwraps the raw response from an Email_Brief_Schema "Save_Revision" call into a plain result object
     // (handling structuredContent, a JSON string in content, a `.result` envelope, and array wrapping).
     function parseSaveResponse(raw) {
       let parsed = raw?.structuredContent;
@@ -6714,7 +6716,7 @@ All emails in this brief have been confirmed and pushed to the brief.
         email.preheader
       );
 
-      email.fromName = data.from_name || email.fromName;
+      email.fromName = data.from_name || email.fromName || defaultFromName;
       email.replyTo = data.reply_to_email_address || email.replyTo;
 
       email.bodyPara1 = normalizeBodyFragment(data.body_para_1 || '');
@@ -6821,7 +6823,7 @@ All emails in this brief have been confirmed and pushed to the brief.
 
     const bannerUploadFallbackMessage = 'Banner image upload failed. Please contact MOPs via #ask-mops channel';
     const bannerImageLoadFailedMessage = 'The uploaded banner image could not be loaded. Please contact MOPs via #ask-mops channel';
-    const saveFallbackMessage = 'Unable to save email state. Please contact MOPs via #ask-mops channel.';
+    const saveFallbackMessage = 'Save failed, please try again.';
 
     // Returns a promise that resolves once an <img> pointed at `url` successfully loads, or rejects
     // with a user-facing error if it fails to load — used to confirm an uploaded banner image is
@@ -6946,32 +6948,38 @@ All emails in this brief have been confirmed and pushed to the brief.
       }
     }
 
-    // Calls Email_Brief_Schema with path "Save" for a single email tagged with the given lifecycle
-    // state (draft/briefed/build), throwing on any failure (tool error or process_flag !== true).
+    // Calls Email_Brief_Schema with path "Save_Revision" for a single email tagged with the given
+    // lifecycle state (draft/briefed/build/approved). A save succeeds only when process_flag is true
+    // (boolean or the string "true"); a failed attempt is retried once before throwing.
     // Returns the deep-cloned payload that was sent, so callers can snapshot it.
     async function saveEmailState(email, state) {
       const payloadSnapshot = buildSaveRequest(email, state);
+      const maxAttempts = 2;
 
-      console.info("[save] calling Email_Brief_Schema with path Save, payload:", payloadSnapshot);
-      const result = await window.tacticEmailStudioApp.callServerTool({
-        name: 'Email_Brief_Schema',
-        arguments: payloadSnapshot,
-      });
-      console.info("[save] Email_Brief_Schema raw response:", result);
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+          console.info(`[save] calling Email_Brief_Schema with path Save_Revision (attempt ${attempt}), payload:`, payloadSnapshot);
+          const result = await window.tacticEmailStudioApp.callServerTool({
+            name: 'Email_Brief_Schema',
+            arguments: payloadSnapshot,
+          });
+          console.info("[save] Email_Brief_Schema raw response:", result);
 
-      const response = parseSaveResponse(result);
-      console.info("[save] Email_Brief_Schema unwrapped result:", response);
+          const response = parseSaveResponse(result);
+          console.info("[save] Email_Brief_Schema unwrapped result:", response);
 
-      if (
-        result?.isError ||
-        result?.error ||
-        !response ||
-        response.process_flag !== true
-      ) {
-        throw new Error(response?.msg || saveFallbackMessage);
+          const succeeded = !result?.isError && !result?.error
+            && (response?.process_flag === true || String(response?.process_flag).toLowerCase() === 'true');
+
+          if (succeeded) {
+            return payloadSnapshot;
+          }
+        } catch (error) {
+          console.error(`[save] attempt ${attempt} failed:`, error);
+        }
       }
 
-      return payloadSnapshot;
+      throw new Error(saveFallbackMessage);
     }
 
     // Saves one email's current state via Email_Brief_Schema (no-op if it's already built/approved,

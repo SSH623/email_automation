@@ -64,13 +64,31 @@ If an app loads from a new domain, add it to this table and to the app's allowed
 | Tactic Selection | v1 | Initial release. Production and Sandbox are identical. |
 | Brief Builder | v1 | Initial release. Sandbox adds help text for the event fields (time zone, start time, end time, location, title) that Production does not have yet. |
 | Email Studio | v2.3 | Fixed MongoDB logo image in every email preview. See the changelog below. |
-| Email Revision App | v1.1 (Sandbox) | Loads one email for revision, with Enhance with AI on body paragraphs. Not in Production yet. See the changelog below. |
+| Email Revision App | v1.2 (Sandbox) | Loads one email for revision, with Enhance with AI on body paragraphs. Saves through `Email_Brief_Schema` "Save_Revision". Not in Production yet. See the changelog below. |
 
 When Sandbox changes are promoted to Production, bump the version here and add an entry to the app's changelog. Production keeps a single file; earlier versions live in the git history. Put the release date under each changelog entry.
 
 ## Email Revision App Changelog
 
 Sandbox only for now (`Email Revision App/Sandbox/email_revision.html`, started as a copy of Email Studio v2.3). Each commit and push adds the next version here.
+
+### v1.2
+
+Committed 2026-11-14.
+
+**Save through Save_Revision**
+- Every save now calls `Email_Brief_Schema` with `path: "Save_Revision"` instead of "Save". This covers Save draft and the background saves after Push to brief (`briefed`), Build (`build`) and Approve (`approved`). The email is stored as one document in `AI_Email_Editor`.
+- Request: top-level `tactic_link` plus `revision_email[]` with the one email being saved. `tactic[]`, `emails[]` and `brief_document_id` are no longer sent.
+- `subject_line_1` and `preheader_text_1` carry whatever is in the subject and preheader boxes. Options 2 and 3 and the selected-index fields are no longer sent.
+- Sends the required `restrictions_*` flags, `email_template_found` and `email_layout_found` (always true/false), plus the optional fields (`email_schedule`, `audience_secured`, `send_datetime` and the other restrictions).
+- `draft_datetime` is set to the save time. The recipe sets its own value.
+- Task fields and UTMs are optional, so confirmation and waitlist emails without a task save normally.
+- From name defaults to `MongoDB` when it is empty, on load and on save.
+
+**Result and retry**
+- Only `process_flag` is read from the response. The app does not need the email, brief document or brief tabs back; those come from `Email_Editor_Utility` "get_email_draft".
+- A save succeeds when `process_flag` is `true` (a boolean or the string `"true"`). Otherwise the save is retried once automatically.
+- If the retry also fails, the app shows "Save failed, please try again." This replaces the old "contact MOPs" save message.
 
 ### v1.1
 
