@@ -131,6 +131,19 @@ Committed 2026-11-14.
 - In the body paragraph toolbar, the Link menu's URL box and the Enhance with AI instruction box reused the `choice-input` style, which keeps 104px free on the right for the subject/preheader character count and ✦ button. In the narrow link menu that hid about half the box: text stopped midway and the right side stayed blank.
 - Both boxes now have normal right padding (9px, same as the left), so text runs the full width. The Subject line and Preheader fields are unchanged.
 
+**Brief tabs read fresh on every Push to brief**
+- Push to brief now reads the brief's current tab names with `Email_Editor_Utility` (`process_name: "get_brief_tabs_name"`, `document_id`) every time, so tabs added during a revision are picked up. The lock overlay shows "Accessing email brief…" while it reads.
+- More than one tab opens the tab picker (the earlier choice is pre-selected if it still exists). One tab is used directly.
+- If the tabs can't be read (tool error, failed flag or no `brief_document_id`), the reason goes to the console, the status line shows "Could not access the email brief, please try again." and nothing is pushed.
+- The background tab reads on load and after save are removed. Build for pre-event and post-event emails reuses the tab chosen at push. Reminder Build and Approve still pick a tab silently.
+
+**Confirmation and waitlist emails: their own Build process**
+- Build for `confirmation`, `registration_confirmation` and `waitlist` calls `Email_Release_Pipeline` with `process_name` `confirmation` or `waitlist` (a registration confirmation is sent as `confirmation`). It no longer reads brief tabs.
+- The request carries only what that process takes: `process_name`, `marketo_program_id`, `confirmation_waitlist_email` (one item: `email_type` matching `process_name`, `from_name`, `reply_to_email_address`, `subject_line_1`, `preheader_text_1`, `body_para_1`, `2`, `3`) and `emails` (one item, the usual email payload).
+- Success is still `flag: true`; a failure shows the returned `msg`. Approve is unchanged for now.
+- The process skips blank values, which would leave old text in Marketo, so for these emails From name, Reply-to address, Subject line, Preheader and all three body paragraphs are now required, like the event fields. A blank one shows "… cannot be blank." and blocks Save, Build and Approve. A blank paragraph is outlined red in the preview with an "Add paragraph N" hint instead of sample text.
+- Subject and preheader lengths (60/80) are not enforced; they are sent as they are.
+
 ### v1.1
 
 Committed 2026-11-14.

@@ -3606,8 +3606,8 @@ This email has been pushed to the brief.
       const richClass = isRichText ? ' rich-content' : '';
       const renderedValue = isRichText ? richMarkup(text) : esc(text);
       const styleAttr = styleOverride ? ' style="' + esc(styleOverride) + '"' : '';
-      const blankClass = requiredEventFields.some((field) => field.key === key) && usesEventFields(current().template) && !String(text || '').trim() ? ' required-blank' : '';
-      const blankHints = { eyebrow: 'Add eyebrow', eventTitle: 'Add event title', eventDatetime: 'Add event date and time' };
+      const blankClass = requiredFieldsFor(current()).some((field) => field.key === key) && isBlankValue(text) ? ' required-blank' : '';
+      const blankHints = { eyebrow: 'Add eyebrow', eventTitle: 'Add event title', eventDatetime: 'Add event date and time', bodyPara1: 'Add paragraph 1', bodyPara2: 'Add paragraph 2', bodyPara3: 'Add paragraph 3' };
       const hintAttr = blankClass ? ' data-hint="' + esc(blankHints[key] || 'Add a value') + '"' : '';
 
       return '<div id="token-' + tokenName + '" class="' + className + ' editable' + richClass + blankClass + '"' + styleAttr + ' contenteditable="false" data-modal-editable="true" data-edit="' + key + '"' + hintAttr + ' data-token="' + tokenName + '" data-rich-text="' + (isRichText ? 'true' : 'false') + '" role="textbox" aria-label="' + esc(label) + '">' + renderedValue + '</div>';
@@ -4344,9 +4344,12 @@ This email has been pushed to the brief.
       const grey = layout.id.indexOf('gray') === 0;
       const card = layout.mode === 'card';
       const salutation = previewValue(email, 'salutation', '');
-      const paragraph1 = previewValue(email, 'bodyPara1', 'We are sharing a quick operational update to help your team stay aligned.');
-      const paragraph2 = previewValue(email, 'bodyPara2', 'Review the details below, share them with the right stakeholders, and reach out if you need help planning your next step.');
-      const paragraph3 = previewValue(email, 'bodyPara3', 'Thank you for partnering with MongoDB.');
+      // Confirmation and waitlist paragraphs must not be blank, so a blank one shows as blank (flagged
+      // red) rather than with sample text.
+      const sample = !isRegistrationTriggeredEmail(email);
+      const paragraph1 = previewValue(email, 'bodyPara1', sample ? 'We are sharing a quick operational update to help your team stay aligned.' : '');
+      const paragraph2 = previewValue(email, 'bodyPara2', sample ? 'Review the details below, share them with the right stakeholders, and reach out if you need help planning your next step.' : '');
+      const paragraph3 = previewValue(email, 'bodyPara3', sample ? 'Thank you for partnering with MongoDB.' : '');
       const content = '<div class="operational-simple-body operational-copy">' + edit('salutation', salutation, 'operational-salutation', 'Email salutation') + edit('bodyPara1', paragraph1, 'operational-paragraph', 'Email paragraph 1') + edit('bodyPara2', paragraph2, 'operational-paragraph second', 'Email paragraph 2') + edit('bodyPara3', paragraph3, 'operational-paragraph third', 'Email paragraph 3') + '</div><div class="operational-bottom-space"></div>';
 
       return '<div class="operational-email ' + (grey ? 'op-grey' : 'op-white') + '"><div class="operational-logo-module">' + emailLogoMarkup() + '</div><div class="' + (card ? 'operational-card' : 'operational-simple-body') + '"><div class="operational-spacer"></div>' + content + '</div></div>';
@@ -5332,27 +5335,48 @@ This email has been pushed to the brief.
       { key: 'eventDatetime', label: 'Event date & time' },
     ];
 
-    // Returns the labels of required event fields (eyebrow, event title, event date/time) that are
-    // blank on this email. Always empty for templates that don't show event fields.
-    function blankEventFields(email) {
-      if (!usesEventFields(email.template)) {
-        return [];
-      }
-      return requiredEventFields
-        .filter((field) => !String(email[field.key] || '').trim())
+    // Confirmation and waitlist emails write every one of these as a Marketo token on Build, and the
+    // build skips blank values (Marketo would keep the old text), so none of them may be blank.
+    const requiredRegistrationFields = [
+      { key: 'fromName', label: 'From name' },
+      { key: 'replyTo', label: 'Reply-to address' },
+      { key: 'subject', label: 'Subject line' },
+      { key: 'preheader', label: 'Preheader' },
+      { key: 'bodyPara1', label: 'Body paragraph 1' },
+      { key: 'bodyPara2', label: 'Body paragraph 2' },
+      { key: 'bodyPara3', label: 'Body paragraph 3' },
+    ];
+
+    // The fields that must not be blank on this email: the event fields for templates that show them,
+    // and every token for confirmation and waitlist emails.
+    function requiredFieldsFor(email) {
+      const fields = usesEventFields(email.template) ? requiredEventFields.slice() : [];
+      if (isRegistrationTriggeredEmail(email)) fields.push(...requiredRegistrationFields);
+      return fields;
+    }
+
+    // Whether a value is blank once its HTML tags and non-breaking spaces are removed.
+    function isBlankValue(value) {
+      return !String(value || '').replace(/<[^>]*>/g, '').replace(/&nbsp;|\u00a0/g, ' ').trim();
+    }
+
+    // Returns the labels of this email's required fields that are blank.
+    function blankRequiredFields(email) {
+      return requiredFieldsFor(email)
+        .filter((field) => isBlankValue(email[field.key]))
         .map((field) => field.label);
     }
 
     // Crisp warning for blank required fields, or '' if none are blank.
-    function blankEventFieldsMessage(email) {
-      const blanks = blankEventFields(email);
+    function blankRequiredFieldsMessage(email) {
+      const blanks = blankRequiredFields(email);
       return blanks.length ? blanks.join(', ') + ' cannot be blank.' : '';
     }
 
     // Whether this email cannot be pushed to the brief right now: unsaved changes, a blocking banner
     // upload state, a missing send date, or a missing task assignment.
     function emailPushBlocked(email) {
-      return email.dirty || bannerUploadBlocksAction(email) || taskAssignmentBlocksAction(email) || dueDateMissing(email) || blankEventFields(email).length > 0;
+      return email.dirty || bannerUploadBlocksAction(email) || taskAssignmentBlocksAction(email) || dueDateMissing(email) || blankRequiredFields(email).length > 0;
     }
 
     // Whether a given task id is already assigned to a different email than currentEmailId, used to
@@ -5650,8 +5674,8 @@ This email has been pushed to the brief.
       if (!progress.design && !isReminderEmail(email)) {
         return { section: 'design', text: 'Select your template and layout', tone: 'next' };
       }
-      if (blankEventFields(email).length) {
-        return { section: 'edit', text: blankEventFieldsMessage(email), tone: 'blocker' };
+      if (blankRequiredFields(email).length) {
+        return { section: 'edit', text: blankRequiredFieldsMessage(email), tone: 'blocker' };
       }
       if (!progress.edit) {
         return { section: 'edit', text: 'Edit your email', tone: 'next' };
@@ -5724,7 +5748,7 @@ This email has been pushed to the brief.
       const bannerBlocked = bannerUploadBlocksAction(email);
       const taskBlocked = taskAssignmentBlocksAction(email);
       const dueDateBlocked = dueDateMissing(email);
-      const blankBlocked = blankEventFields(email).length > 0;
+      const blankBlocked = blankRequiredFields(email).length > 0;
       const saving = email.saveStatus === 'saving';
       const stage = emailStage(email);
 
@@ -5764,20 +5788,20 @@ This email has been pushed to the brief.
       };
       const reasons = {
         draft: saveButton.disabled && stage < 1
-          ? (taskBlocked ? 'Select an email task first.' : dueDateBlocked ? sendDatePrompt(email) + ' first.' : blankBlocked ? blankEventFieldsMessage(email) : !email.dirty ? 'Make a change to this email to save a draft.' : '')
+          ? (taskBlocked ? 'Select an email task first.' : dueDateBlocked ? sendDatePrompt(email) + ' first.' : blankBlocked ? blankRequiredFieldsMessage(email) : !email.dirty ? 'Make a change to this email to save a draft.' : '')
           : '',
         push: confirmButton.disabled && stage < 2
           ? (bannerBlocked ? 'Upload a banner image first.'
             : dueDateBlocked ? sendDatePrompt(email) + ' first.'
             : taskBlocked ? 'Select an email task first.'
-            : blankBlocked ? blankEventFieldsMessage(email)
+            : blankBlocked ? blankRequiredFieldsMessage(email)
             : email.dirty ? 'Save your draft first.' : '')
           : '',
         build: buildButton.disabled && stage < 3
-          ? (stage < 2 ? (reminderEmail ? 'Save your draft first.' : 'Push this email to the brief first.') : email.dirty ? 'Save your draft first.' : blankBlocked ? blankEventFieldsMessage(email) : '')
+          ? (stage < 2 ? (reminderEmail ? 'Save your draft first.' : 'Push this email to the brief first.') : email.dirty ? 'Save your draft first.' : blankBlocked ? blankRequiredFieldsMessage(email) : '')
           : '',
         approve: document.querySelector('[data-approve]').disabled && stage < 4
-          ? (!email.built ? 'Build this email first.' : blankBlocked ? blankEventFieldsMessage(email) : '')
+          ? (!email.built ? 'Build this email first.' : blankBlocked ? blankRequiredFieldsMessage(email) : '')
           : '',
       };
       ['draft', 'push', 'build', 'approve'].forEach((name, index) => {
@@ -5801,7 +5825,9 @@ This email has been pushed to the brief.
           ? 'Pushing content to your tactic brief…'
           : emails.some((item) => item.saveStatus === 'saving')
             ? 'Saving changes…'
-            : '';
+            : briefTabsLoading
+              ? 'Accessing email brief…'
+              : '';
       document.querySelector('[data-build-lock-text]').textContent = lockMessage || 'Building email…';
       buildLockOverlay.hidden = !lockMessage;
       buildLockOverlay.classList.toggle('show', Boolean(lockMessage));
@@ -5931,7 +5957,7 @@ This email has been pushed to the brief.
       if (bannerUploadBlocksAction(email)) return 'Upload a banner image first.';
       if (dueDateMissing(email)) return sendDatePrompt(email) + ' first.';
       if (taskAssignmentBlocksAction(email)) return 'Select an email task first.';
-      if (blankEventFields(email).length) return blankEventFieldsMessage(email);
+      if (blankRequiredFields(email).length) return blankRequiredFieldsMessage(email);
       if (email.dirty) return 'Save your draft first.';
       return '';
     }
@@ -6399,6 +6425,33 @@ This email has been pushed to the brief.
         marketo_program_id: marketoProgramId,
         emails: emailsToPush.map((email) => buildEmailToken(email, options.schedule)),
         process_name: options.processName,
+      }));
+    }
+
+    // Confirmation and waitlist emails are built with their own Email_Release_Pipeline process
+    // ("confirmation" or "waitlist"), which writes the sender, reply-to, subject, preheader and body
+    // paragraphs as Marketo tokens. Sends only the fields that process takes. A registration
+    // confirmation is the same email as a confirmation.
+    function registrationProcessName(email) {
+      return String(email.emailType || '').trim().toLowerCase() === 'waitlist' ? 'waitlist' : 'confirmation';
+    }
+
+    function buildRegistrationEmailRequest(email) {
+      const type = registrationProcessName(email);
+      return JSON.parse(JSON.stringify({
+        process_name: type,
+        marketo_program_id: marketoProgramId,
+        confirmation_waitlist_email: [{
+          email_type: type,
+          from_name: email.fromName,
+          reply_to_email_address: email.replyTo,
+          subject_line_1: email.subject,
+          preheader_text_1: email.preheader,
+          body_para_1: normalizeBodyFragment(email.bodyPara1),
+          body_para_2: normalizeBodyFragment(email.bodyPara2),
+          body_para_3: normalizeBodyFragment(email.bodyPara3),
+        }],
+        emails: [buildEmailToken(email)],
       }));
     }
 
@@ -6985,7 +7038,7 @@ This email has been pushed to the brief.
     async function saveEmailById(emailId) {
       const email = emails.find((item) => item.id === emailId);
 
-      if (!email || email.approved || email.saveStatus === 'saving' || !email.dirty || blankEventFields(email).length) {
+      if (!email || email.approved || email.saveStatus === 'saving' || !email.dirty || blankRequiredFields(email).length) {
         return;
       }
 
@@ -7038,6 +7091,56 @@ This email has been pushed to the brief.
 
     let briefTabModal = null;
 
+    // The pending Email_Editor_Utility "get_brief_tabs_name" call, if one is running, and whether the
+    // app is waiting on it (which shows the lock overlay with "Accessing email brief…").
+    let briefTabsRequest = null;
+    let briefTabsLoading = false;
+    const briefAccessFailedMessage = 'Could not access the email brief, please try again.';
+
+    // Fetches the email brief's current tab names with Email_Editor_Utility (process_name
+    // "get_brief_tabs_name", document_id = the brief's Google Doc ID) and keeps them in emailBriefTabs.
+    // The brief can gain or lose tabs while someone works on the email, so this runs on every Push to
+    // brief (see resolveBriefTab). Calls made while one is running share it. A failure is logged to the
+    // console and resolves false (resolveBriefTab then stops the push). A remembered tab choice that
+    // no longer exists in the brief is forgotten. Resolves true when fresh tabs were stored.
+    function refreshBriefTabs() {
+      if (!briefDocumentId) {
+        console.warn('[brief tabs] no brief_document_id, cannot read the email brief');
+        return Promise.resolve(false);
+      }
+      if (briefTabsRequest) {
+        return briefTabsRequest;
+      }
+      briefTabsRequest = (async () => {
+        try {
+          const result = await window.tacticEmailStudioApp.callServerTool({
+            name: 'Email_Editor_Utility',
+            arguments: { process_name: 'get_brief_tabs_name', document_id: briefDocumentId },
+          });
+          const response = parseFindStateResponse(result);
+          if (result?.isError || result?.error || !response || !window.isTrueFlag(response.process_flag)) {
+            console.warn('[brief tabs] get_brief_tabs_name failed:', response && response.msg);
+            return false;
+          }
+          const tabs = normalizeBriefTabs(response.document_tabs);
+          if (!tabs) {
+            return false;
+          }
+          emailBriefTabs = tabs;
+          if (selectedBriefTab && !tabs.some((tab) => tab.tab_title === selectedBriefTab)) {
+            selectedBriefTab = '';
+          }
+          return true;
+        } catch (error) {
+          console.error('[brief tabs] get_brief_tabs_name threw', error);
+          return false;
+        } finally {
+          briefTabsRequest = null;
+        }
+      })();
+      return briefTabsRequest;
+    }
+
     // Builds the "select a brief tab" modal's DOM once and appends it to the document body.
     function createBriefTabModal() {
       if (briefTabModal) {
@@ -7069,7 +7172,7 @@ This email has been pushed to the brief.
 
     // Shows the brief-tab modal populated with the given tab options and returns a promise that
     // resolves with the chosen tab title, or null if the user cancels.
-    function promptForBriefTab(tabs) {
+    function promptForBriefTab(tabs, preselect = '') {
       return new Promise((resolve) => {
         createBriefTabModal();
 
@@ -7079,6 +7182,9 @@ This email has been pushed to the brief.
           + '</select>';
 
         const selectEl = optionsContainer.querySelector('[data-tab-modal-select]');
+        if (preselect && tabs.some((tab) => tab.tab_title === preselect)) {
+          selectEl.value = preselect;
+        }
         const confirmButton = briefTabModal.querySelector('[data-tab-modal-confirm]');
         const cancelButton = briefTabModal.querySelector('[data-tab-modal-cancel]');
         const closeButton = briefTabModal.querySelector('[data-tab-modal-close]');
@@ -7108,19 +7214,39 @@ This email has been pushed to the brief.
       });
     }
 
-    // Determines which brief tab to push email content into: reuses a previously chosen tab if there
-    // is one, auto-selects the sole tab if there's only one option, prompts the user to choose when
-    // there are multiple tabs, or returns '' if there are no tabs at all. Returns null if the user
-    // cancels the picker.
-    async function resolveBriefTab() {
-      if (selectedBriefTab) {
+    // Determines which brief tab to write email content into.
+    // With `fresh` (Push to brief): always reads the brief's current tabs first with get_brief_tabs_name,
+    // behind the lock overlay ("Accessing email brief…"), because tabs may have been added or removed
+    // since the email was opened. Then: several tabs -> the picker opens (the earlier choice is
+    // pre-selected when it still exists); one tab -> that tab; no tabs -> ''.
+    // Without `fresh` (Build): reuses the tab chosen at Push to brief; if there is none yet it works
+    // like `fresh`. Returns null if the person cancels the picker, or if the brief could not be read:
+    // then the status line says "Could not access the email brief, please try again." and nothing is
+    // pushed or built.
+    async function resolveBriefTab({ fresh = false } = {}) {
+      const knownTabs = Array.isArray(emailBriefTabs) && emailBriefTabs.length > 0;
+      if (!fresh && selectedBriefTab && knownTabs) {
         return selectedBriefTab;
+      }
+
+      briefTabsLoading = true;
+      renderActions(current());
+      let tabsRead = false;
+      try {
+        tabsRead = await refreshBriefTabs();
+      } finally {
+        briefTabsLoading = false;
+        renderActions(current());
+      }
+      if (!tabsRead) {
+        document.querySelector('[data-settings-status]').textContent = briefAccessFailedMessage;
+        return null;
       }
 
       const tabs = Array.isArray(emailBriefTabs) ? emailBriefTabs : [];
 
       if (tabs.length > 1) {
-        const chosen = await promptForBriefTab(tabs);
+        const chosen = await promptForBriefTab(tabs, selectedBriefTab);
         if (!chosen) {
           return null;
         }
@@ -7133,6 +7259,7 @@ This email has been pushed to the brief.
         return selectedBriefTab;
       }
 
+      selectedBriefTab = '';
       return '';
     }
 
@@ -7162,7 +7289,7 @@ This email has been pushed to the brief.
         return;
       }
 
-      const tabTitle = await resolveBriefTab();
+      const tabTitle = await resolveBriefTab({ fresh: true });
       if (tabTitle === null) {
         return;
       }
@@ -7236,18 +7363,23 @@ This email has been pushed to the brief.
       }
 
       const email = current();
-      if (!email || !(email.confirmed || isReminderEmail(email)) || blankEventFields(email).length) {
+      if (!email || !(email.confirmed || isReminderEmail(email)) || blankRequiredFields(email).length) {
         return;
       }
 
-      // Reminder emails never go through the brief, so Build must not ask which brief tab to use:
-      // resolve it silently (same as Approve). Any other email type still gets the tab picker when needed.
-      const tabTitle = isReminderEmail(email) ? resolveBriefTabForApproval() : await resolveBriefTab();
-      if (tabTitle === null) {
-        return;
+      let payload;
+      if (isRegistrationTriggeredEmail(email)) {
+        // Confirmation and waitlist emails have their own build process and no brief tab.
+        payload = buildRegistrationEmailRequest(email);
+      } else {
+        // Reminder emails never go through the brief, so Build must not ask which brief tab to use:
+        // resolve it silently (same as Approve). Any other email type still gets the tab picker when needed.
+        const tabTitle = isReminderEmail(email) ? resolveBriefTabForApproval() : await resolveBriefTab();
+        if (tabTitle === null) {
+          return;
+        }
+        payload = buildReleasePipelineRequest([email], tabTitle, { processName: 'build' });
       }
-
-      const payload = buildReleasePipelineRequest([email], tabTitle, { processName: 'build' });
 
       buildInFlight = true;
       render();
@@ -7527,7 +7659,7 @@ This email has been pushed to the brief.
       }
 
       const email = current();
-      if (!email || blankEventFields(email).length) {
+      if (!email || blankRequiredFields(email).length) {
         return;
       }
 
