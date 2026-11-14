@@ -2898,7 +2898,7 @@ Click any highlighted text in the preview to edit the template content directly.
 </div>
 </section>
 <div class="brief-ready" data-brief-ready>
-All emails in this brief have been confirmed and pushed to the brief.
+This email has been pushed to the brief.
 </div>
 </main>
 </div>
@@ -3097,7 +3097,7 @@ All emails in this brief have been confirmed and pushed to the brief.
       return Boolean(email) && email.businessFamily === 'reminder';
     }
 
-    // Forces a reminder email's template and layout to the locked values; no-op for other emails.
+    // Forces a reminder email's template and layout to the locked values; no-op for any other email type.
     function enforceReminderDesign(email) {
       if (!isReminderEmail(email)) return;
       email.template = REMINDER_TEMPLATE;
@@ -4086,7 +4086,7 @@ All emails in this brief have been confirmed and pushed to the brief.
       });
     }
 
-    // Returns the status pill (CSS class + label) to show for an email in the sidebar list. It uses
+    // Returns the status pill (CSS class + label) for the email in the (hidden) email strip. It uses
     // the same stage logic and wording as the progress bar (emailStage / trackerStatusText), so the
     // two always agree. The database `state` values (draft / briefed / build / approved) are unchanged.
     function emailListStatus(email) {
@@ -4104,7 +4104,7 @@ All emails in this brief have been confirmed and pushed to the brief.
       return { className: 'status-browsing', label };
     }
 
-    // Refreshes every status pill in the sidebar in place (no rebuild), so they follow edits as you type.
+    // Refreshes the email's status pill in place (no rebuild), so it follows edits as you type.
     function updateListStatuses() {
       document.querySelectorAll('[data-email-id]').forEach((button) => {
         const email = emails.find((item) => item.id === button.dataset.emailId);
@@ -4118,10 +4118,9 @@ All emails in this brief have been confirmed and pushed to the brief.
       });
     }
 
-    // Renders the horizontal strip of all emails in the brief (title, stage pill, status pill), wires up
-    // click handlers to switch the current email, and updates the brief email-count display(s). The
-    // strip keeps its sideways scroll position across re-renders. The first click marks the email as
-    // chosen, which moves the "next step" guidance on from "Select your email".
+    // Renders the email strip (title, stage pill, status pill) for the one email being revised. The strip
+    // stays hidden; it is kept so the status pill logic still runs. Also fills the "Editing: <label>"
+    // header with the email's label.
     function renderList() {
       const list = document.querySelector('[data-email-list]');
       const scrollLeft = list.scrollLeft;
@@ -5558,7 +5557,7 @@ All emails in this brief have been confirmed and pushed to the brief.
     }
 
     // Which steps of the settings -> template/layout -> edit part of the journey the user has been
-    // through, per email, for this session only. Saved emails skip straight to the tracker.
+    // through on this email, for this session only. A saved email skips straight to the tracker.
     const guideProgress = {};
     let hasPickedEmail = false;
 
@@ -5583,11 +5582,6 @@ All emails in this brief have been confirmed and pushed to the brief.
     // up, `tone` is 'next' (grey) or 'blocker' (red: something required is missing), and `field`
     // optionally names the exact input to light up inside the settings box.
     function guideFor(email) {
-      const pickedEmail = hasPickedEmail || emails.length <= 1;
-      if (!pickedEmail) {
-        return { section: 'strip', text: 'Select your email', tone: 'next' };
-      }
-
       const stage = emailStage(email);
       if (stage === 4) {
         return { section: null, text: 'Update audience in your brief and approve it in your tactic', tone: 'next' };
@@ -5809,7 +5803,9 @@ All emails in this brief have been confirmed and pushed to the brief.
       document.querySelector('.design-section').toggleAttribute('inert', designLocked);
       document.querySelector('[data-saved-draft-picker]').toggleAttribute('inert', designLocked);
 
-      document.querySelector('[data-brief-ready]').classList.toggle('show', emails.every((item) => item.confirmed || isReminderEmail(item)));
+      // Shown only once this email has been pushed to the brief. Reminder and confirmation-family emails
+      // never go to the brief, so they never show it.
+      document.querySelector('[data-brief-ready]').classList.toggle('show', email.confirmed && !isReminderEmail(email));
 
       updateGuide(email);
 
@@ -5895,9 +5891,9 @@ All emails in this brief have been confirmed and pushed to the brief.
     }
 
     // ---- Floating next-step button -------------------------------------------------------------
-    // Once the progress bar has scrolled out of view, a small button shows the next step. Save draft
-    // and Build email run straight away. Push to brief and Approve have their own menus in the bar, so
-    // the button scrolls back up to them instead. When a step completes, a green ring runs around it.
+    // Once the progress bar has scrolled out of view, a small button shows the next step for this email.
+    // Save draft, Push to brief and Build email run straight away; Approve opens its dialog above the
+    // button. When a step completes, a green ring runs around it.
     const fabStages = {};
     let fabHold = '';
     let fabHoldTimer = null;
@@ -6202,7 +6198,7 @@ All emails in this brief have been confirmed and pushed to the brief.
       }
     }
 
-    // The UTM parameters kept on every email, as CTA URL query key -> email field.
+    // The UTM parameters kept on the email, as CTA URL query key -> email field.
     const CTA_UTM_FIELDS = {
       utm_source: 'utmSource',
       utm_medium: 'utmMedium',
@@ -6306,7 +6302,7 @@ All emails in this brief have been confirmed and pushed to the brief.
     // Builds the payload shape for one email expected by Email_Release_Pipeline: core fields plus
     // conditional fields (CTA, event fields, banner fields) depending on what the email's template
     // uses, plus the approval schedule fields (only meaningful/populated on a process_name "approve"
-    // call; `schedule` is omitted for brief/brief-all/build calls).
+    // call; `schedule` is omitted for brief/build calls).
     function buildEmailToken(email, schedule) {
       const selectedLayout = layouts.find((item) => item.id === email.layout);
       const showEventFields = usesEventFields(email.template);
@@ -6371,7 +6367,7 @@ All emails in this brief have been confirmed and pushed to the brief.
     }
 
     // Builds the full request body for the Email_Release_Pipeline tool call: tactic/brief identifiers,
-    // the target brief tab, the tokenized form of each email to push, and which process to run
+    // the target brief tab, the tokenized form of the email being pushed, and which process to run
     // ("brief", "build", or "approve"). Deep-clones the result via JSON round-trip so the
     // caller gets a plain, detached object.
     function buildReleasePipelineRequest(emailsToPush, tabTitle, options = {}) {
@@ -7201,7 +7197,7 @@ All emails in this brief have been confirmed and pushed to the brief.
         render();
 
         document.querySelector('[data-settings-status]').textContent =
-          error.message || 'Push failed. No emails were confirmed.';
+          error.message || 'Push failed. This email was not pushed to the brief.';
       } finally {
         confirmInFlight = false;
       }
@@ -7223,7 +7219,7 @@ All emails in this brief have been confirmed and pushed to the brief.
       }
 
       // Reminder emails never go through the brief, so Build must not ask which brief tab to use:
-      // resolve it silently (same as Approve). Other emails still get the tab picker when needed.
+      // resolve it silently (same as Approve). Any other email type still gets the tab picker when needed.
       const tabTitle = isReminderEmail(email) ? resolveBriefTabForApproval() : await resolveBriefTab();
       if (tabTitle === null) {
         return;
@@ -7468,13 +7464,13 @@ All emails in this brief have been confirmed and pushed to the brief.
 
     function openApprovalPopover(fromFab = false) {
       initApprovalPopover();
-      // The dialog is shared by every email, so always open it with a working Approve button.
+      // Always open the dialog with a working Approve button (it may have been disabled by an earlier attempt).
       document.querySelector('[data-approval-confirm]').disabled = approvalInFlight;
       dockApprovalPopover(fromFab);
       const trigger = document.querySelector('[data-approve]');
       const popover = document.querySelector('[data-approval-popover]');
       // Reminder emails can't use the "Recipient time zone" option: hide the tab switcher (only
-      // "Set time" remains). Other emails get both tabs back (the popover is shared between emails).
+      // "Set time" remains). Any other email type gets both tabs.
       const reminder = isReminderEmail(current());
       const segment = document.querySelector('.approval-segment');
       if (segment) {
@@ -7876,9 +7872,28 @@ All emails in this brief have been confirmed and pushed to the brief.
     document.querySelector('[data-saved-draft-select]').addEventListener('change', handleSavedDraftSelectChange);
 
     // Builds the on-demand "?" walkthrough: a fixed, manually-triggered driver.js tour that explains
-    // the sidebar, template/layout pickers, live preview editing, the save/push/build action bar, and
-    // the refresh button. Starts over from step one every time it's opened; the user can close it at
+    // the refresh button, the template/layout pickers, live preview editing and the save/push/build/
+    // approve progress bar for the one email being revised. Starts over from step one every time it's opened; the user can close it at
     // any point via the × button, Escape, or clicking outside the highlighted element (driver.js defaults).
+    // The progress step's text, with or without "push it to the brief" (reminder and confirmation-family
+    // emails skip Push to brief, so the tour must not mention it for them).
+    const TOUR_PROGRESS_TEXT = {
+      withPush: 'Save a draft, push it to the brief, build the email, then approve it. The grey line on the right always tells you what to do next, and red means something required is missing. A floating button at the bottom right always shows the next step, wherever you have scrolled.',
+      withoutPush: 'Save a draft, build the email, then approve it. The grey line on the right always tells you what to do next, and red means something required is missing. A floating button at the bottom right always shows the next step, wherever you have scrolled.',
+    };
+
+    // Whether a tour target is actually on screen: it exists, is not inside a hidden section, and has a
+    // rendered box (so display:none and collapsed parents are skipped too).
+    function isTourTargetVisible(element) {
+      if (!element || element.closest('[hidden]')) {
+        return false;
+      }
+      if (typeof element.checkVisibility === 'function') {
+        return element.checkVisibility();
+      }
+      return element.getClientRects().length > 0;
+    }
+
     function initHelpTour() {
       const helpButton = document.querySelector('[data-help-tour]');
       if (!helpButton || !window.driver || !window.driver.js) {
@@ -7893,13 +7908,6 @@ All emails in this brief have been confirmed and pushed to the brief.
             popover: {
               title: 'Start here',
               description: 'Pull in your recent changes before you begin.',
-            },
-          },
-          {
-            element: '[data-email-list]',
-            popover: {
-              title: 'Your emails',
-              description: 'Every email in this brief lives here. Select one to work on it.',
             },
           },
           {
@@ -7927,19 +7935,27 @@ All emails in this brief have been confirmed and pushed to the brief.
             element: '[data-tracker]',
             popover: {
               title: 'Your progress',
-              description: 'Save a draft, push it to the brief, build the email, then approve it. The grey line on the right always tells you what to do next, and red means something required is missing. A floating button at the bottom right always shows the next step, wherever you have scrolled.',
+              description: TOUR_PROGRESS_TEXT.withPush,
             },
           },
         ],
       });
 
       helpButton.addEventListener('click', () => {
-        // Drop tour steps whose target is hidden (e.g. the template/layout pickers on reminder emails).
+        // Only tour what is visible right now: steps whose target is missing or hidden (e.g. the
+        // template/layout pickers on reminder emails) are dropped, and the progress step leaves out
+        // "push it to the brief" when that step is hidden.
         const allSteps = tour.__allSteps || (tour.__allSteps = tour.getConfig().steps || []);
-        tour.setSteps(allSteps.filter((step) => {
-          const target = typeof step.element === 'string' ? document.querySelector(step.element) : step.element;
-          return !target || !target.closest('[hidden]');
-        }));
+        const pushVisible = isTourTargetVisible(document.querySelector('[data-step="push"]'));
+        const steps = allSteps
+          .filter((step) => isTourTargetVisible(typeof step.element === 'string' ? document.querySelector(step.element) : step.element))
+          .map((step) => (step.element === '[data-tracker]'
+            ? { ...step, popover: { ...step.popover, description: pushVisible ? TOUR_PROGRESS_TEXT.withPush : TOUR_PROGRESS_TEXT.withoutPush } }
+            : step));
+        if (!steps.length) {
+          return;
+        }
+        tour.setSteps(steps);
         tour.drive();
       });
     }

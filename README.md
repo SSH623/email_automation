@@ -102,6 +102,16 @@ Committed 2026-11-14.
 - A short note under the field ("UTM parameters restored: …") shows for about 5 seconds.
 - Nothing is restored while the URL is not a valid `https://` URL, and a UTM with no known value is not added. Other query parameters are kept.
 
+**Wording for one email**
+- The note under the preview now reads "This email has been pushed to the brief." (was "All emails in this brief have been confirmed and pushed to the brief."). It shows only after this email is pushed, and never for reminder or confirmation-family emails, which skip the brief (before, it showed for them as soon as they loaded).
+- The push error now reads "Push failed. This email was not pushed to the brief." (was "No emails were confirmed.").
+- The unreachable "Select your email" guidance step is removed, and code comments that described several emails now describe the one email being revised.
+
+**Help tour only shows what is visible**
+- The "Your emails" step is removed.
+- Each time the tour opens, a step is kept only if its section exists and is actually shown, so reminder and confirmation-family emails skip the Template and Layout steps.
+- The "Your progress" step leaves out "push it to the brief" when the Push to brief step is hidden.
+
 ### v1.1
 
 Committed 2026-11-14.
