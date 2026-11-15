@@ -5329,20 +5329,23 @@ This email has been pushed to the brief.
     }
 
     // Whether the email is in the confirmation family (cancellation, postponement, confirmation,
-    // waitlist, KBYG). These share the reminder design but have their own, looser send date rule.
+    // waitlist, KBYG). These share the reminder design and, from v1.3, the same send date rule as
+    // reminders (today or later).
     function isConfirmationFamilyEmail(email) {
       return Boolean(email) && Boolean(confirmationFamilyTypes[String(email.emailType || '').trim().toLowerCase()]);
     }
 
     // Send date rule for this email:
-    // - confirmation family: today or any future date, weekends allowed.
-    // - reminder and post-event families: at least 3 days from today (so tomorrow and the day after
-    //   are blocked), and never a Saturday or Sunday.
+    // - confirmation family and reminders: today or any future date, weekends allowed. Reminders
+    //   need no QA, so marketers can create and deploy them right away (v1.3: before, reminders
+    //   followed the post-event rule below).
+    // - post-event family: at least 3 days from today (so tomorrow and the day after are blocked),
+    //   and never a Saturday or Sunday.
     // - pre-event (and anything else): at least 7 days from today, and never a Saturday or Sunday
     //   (v1.3: before, pre-event emails could be scheduled on a weekend).
     function sendDateRule(email) {
-      if (isConfirmationFamilyEmail(email)) return { minDays: 0, noWeekends: false };
-      if (isReminderEmail(email) || email.businessFamily === 'post-event') return { minDays: 3, noWeekends: true };
+      if (isConfirmationFamilyEmail(email) || isReminderEmail(email)) return { minDays: 0, noWeekends: false };
+      if (email.businessFamily === 'post-event') return { minDays: 3, noWeekends: true };
       return { minDays: 7, noWeekends: true };
     }
 
@@ -5361,8 +5364,8 @@ This email has been pushed to the brief.
 
     // Default send date for a restricted email that arrived with no due_date (its Send date field is
     // hidden, so the person can't set one). Uses the same rule as the Send date calendar: the earliest
-    // allowed day for the email (pre-event +7 days, reminder/post-event +3 days, confirmation family
-    // today), moved forward past any Saturday or Sunday, for every email type. Returns 'YYYY-MM-DD'.
+    // allowed day for the email (pre-event +7 days, post-event +3 days, reminders and confirmation
+    // family today), moved forward past any Saturday or Sunday, for every email type. Returns 'YYYY-MM-DD'.
     function defaultRestrictedSendDate(email) {
       let days = sendDateRule(email).minDays;
       while (isWeekendDate(minimumSendDate(days))) days += 1;

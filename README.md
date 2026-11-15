@@ -97,6 +97,11 @@ Committed 2026-11-15.
 - A weekend date is outlined red with "Send date must be at least 7 days from today and not on a weekend." and blocks Save, Push, Build and Approve. The field help and the next-step message use the same wording; the reminder/post-event message now reads its own day count instead of a fixed "3 days".
 - Confirmation-family emails are unchanged (today or later, weekends allowed).
 
+**Reminders can be scheduled for today**
+- Reminder emails (7d / 3d / 1d) need no QA, so marketers can create and deploy them right away. Their send date rule is now today or later, weekends allowed, the same as confirmation-family emails. Before, they followed the post-event rule (at least 3 days, no weekends).
+- A restricted reminder that arrives with no send date now gets today, or the next Monday if today is a weekend.
+- Post-event stays at least 3 days from today, no weekends.
+
 ### v1.2
 
 Committed 2026-11-14.
