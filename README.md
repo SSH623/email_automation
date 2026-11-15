@@ -109,6 +109,14 @@ Committed 2026-11-15.
 - Only the last change is described, not the whole history: the comparison is against the last saved draft whose content differs from the latest one. Saves that repeat the same content (the automatic Push and Build saves, or a Save with no real edit) are skipped. On load the previous draft comes from the saved drafts; after each Save that changes content, the content saved before it becomes the previous draft.
 - Body paragraphs are compared after the usual clean-up, so markup-only differences don't count. An empty From name counts as `MongoDB`, the value it is saved as.
 
+**Confirmation and waitlist emails end at Build**
+- For `confirmation`, `registration_confirmation` and `waitlist` the progress bar is now just Save draft → Build email. The Approve step and its connector line are hidden, as Push to brief already was. Build writes the email into Marketo and sends a test email, so nothing comes after it.
+- Once built, the next-step line reads "This email has been built and a test email has been sent.", and the floating next-step button goes away. Approve can't be triggered for these emails at all.
+- The campaign is already active, so the email stays editable after a build: any edit needs a Save (so it survives a refresh), which clears Built, and the person can build again for a new test email as often as needed. Deactivating the campaign goes through MOPs.
+- No `change_comment` is built or sent for these emails; it is only sent on Approve, and they have no task to tag.
+- The help tour's progress step reads "Save a draft, then build the email. Building sends you a test email, and you can save and build again as often as you need. …".
+- KBYG, cancellation and postponement emails are unchanged: they keep the reminder flow (Save draft → Build email → Approve).
+
 ### v1.2
 
 Committed 2026-11-14.

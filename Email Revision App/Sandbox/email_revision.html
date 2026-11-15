@@ -5301,6 +5301,15 @@ This email has been pushed to the brief.
       return ['registration_confirmation', 'confirmation', 'waitlist'].includes(key);
     }
 
+    // Confirmation and waitlist emails end at Build (v1.3): Build writes the email into Marketo and
+    // sends a test email, and there is no Push to brief or Approve. The campaign is already active,
+    // so the person can save and build as often as they like; each build sends a new test email.
+    // Deactivating the campaign goes through MOPs. These emails also never send a change_comment,
+    // which is only built on Approve (they have no task to tag).
+    function endsAtBuild(email) {
+      return isRegistrationTriggeredEmail(email);
+    }
+
     // Confirmation and waitlist emails don't show the Email task field at all.
     function hidesTaskField(email) {
       return isRegistrationTriggeredEmail(email);
@@ -5730,6 +5739,10 @@ This email has been pushed to the brief.
         return { section: null, text: 'This email has been approved. No further action is needed.', tone: 'done' };
       }
       if (stage === 3) {
+        // Built is the last step for confirmation and waitlist emails (endsAtBuild).
+        if (endsAtBuild(email)) {
+          return { section: null, text: 'This email has been built and a test email has been sent.', tone: 'done' };
+        }
         return { section: 'approve', text: 'Approve this email', tone: 'next' };
       }
       if (stage === 2) {
@@ -5873,11 +5886,22 @@ This email has been pushed to the brief.
         pushLine.style.display = reminderEmail ? 'none' : '';
       }
 
+      // Confirmation and waitlist emails end at Build (endsAtBuild): hide the Approve step and the
+      // connector line before it, the same way Push to brief is hidden above.
+      const approveStep = document.querySelector('[data-step="approve"]');
+      const noApprove = endsAtBuild(email);
+      approveStep.hidden = noApprove;
+      approveStep.style.display = noApprove ? 'none' : '';
+      const approveLine = approveStep.previousElementSibling;
+      if (approveLine && approveLine.classList.contains('tracker-line')) {
+        approveLine.style.display = noApprove ? 'none' : '';
+      }
+
       const buildButton = document.querySelector('[data-build-email]');
       buildButton.disabled =
         buildInFlight || !(email.confirmed || isReminderEmail(email)) || email.dirty || email.built || email.approved || taskBlocked || dueDateBlocked || blankBlocked;
 
-      document.querySelector('[data-approve]').disabled = !email.built || email.dirty || email.approved || blankBlocked;
+      document.querySelector('[data-approve]').disabled = endsAtBuild(email) || !email.built || email.dirty || email.approved || blankBlocked;
 
       const labels = {
         draft: saving ? 'Saving…' : stage >= 1 ? 'Draft saved' : 'Save draft',
@@ -6108,6 +6132,10 @@ This email has been pushed to the brief.
           disabled: buildButton.disabled,
           reason: stepTitle('build'),
         };
+      }
+      // Nothing left to do once a confirmation or waitlist email is built (endsAtBuild).
+      if (stage === 3 && endsAtBuild(email)) {
+        return null;
       }
       if (stage === 3) {
         return {
@@ -7858,7 +7886,8 @@ This email has been pushed to the brief.
       }
 
       const email = current();
-      if (!email || blankRequiredFields(email).length) {
+      // Confirmation and waitlist emails have no Approve step (endsAtBuild).
+      if (!email || endsAtBuild(email) || blankRequiredFields(email).length) {
         return;
       }
 
@@ -8217,6 +8246,7 @@ This email has been pushed to the brief.
     // emails skip Push to brief, so the tour must not mention it for them).
     const TOUR_PROGRESS_TEXT = {
       withPush: 'Save a draft, push it to the brief, build the email, then approve it. The grey line on the right always tells you what to do next, and red means something required is missing. A floating button at the bottom right always shows the next step, wherever you have scrolled.',
+      buildOnly: 'Save a draft, then build the email. Building sends you a test email, and you can save and build again as often as you need. The grey line on the right always tells you what to do next, and red means something required is missing. A floating button at the bottom right always shows the next step, wherever you have scrolled.',
       withoutPush: 'Save a draft, build the email, then approve it. The grey line on the right always tells you what to do next, and red means something required is missing. A floating button at the bottom right always shows the next step, wherever you have scrolled.',
     };
 
@@ -8286,10 +8316,12 @@ This email has been pushed to the brief.
         // "push it to the brief" when that step is hidden.
         const allSteps = tour.__allSteps || (tour.__allSteps = tour.getConfig().steps || []);
         const pushVisible = isTourTargetVisible(document.querySelector('[data-step="push"]'));
+        // Confirmation and waitlist emails have no Approve step, so their text ends at Build.
+        const approveVisible = isTourTargetVisible(document.querySelector('[data-step="approve"]'));
         const steps = allSteps
           .filter((step) => isTourTargetVisible(typeof step.element === 'string' ? document.querySelector(step.element) : step.element))
           .map((step) => (step.element === '[data-tracker]'
-            ? { ...step, popover: { ...step.popover, description: pushVisible ? TOUR_PROGRESS_TEXT.withPush : TOUR_PROGRESS_TEXT.withoutPush } }
+            ? { ...step, popover: { ...step.popover, description: !approveVisible ? TOUR_PROGRESS_TEXT.buildOnly : pushVisible ? TOUR_PROGRESS_TEXT.withPush : TOUR_PROGRESS_TEXT.withoutPush } }
             : step));
         if (!steps.length) {
           return;
