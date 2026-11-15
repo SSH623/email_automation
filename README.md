@@ -90,6 +90,7 @@ Committed 2026-11-15.
 - The Send date field is hidden, and Reply-to and From name share the row as two columns, as for confirmation and waitlist emails.
 - Applies to every email type that has the flags, not only pre-event and post-event. Confirmation and waitlist emails are unchanged: their field was already hidden and they still send today's date.
 - The held date is not checked against the send date rules (minimum days ahead, no weekends), so it never shows a "Set a send date" warning or blocks Save, Push, Build or Approve. It may be within 24 hours, and there is no field to fix it.
+- If a restricted email arrives with no `due_date`, the app sets one on load with the calendar's rule: the earliest allowed day (pre-event 7 days from today, reminder and post-event 3 days, confirmation family today), moved forward past any Saturday or Sunday. That date is then held like a received one. A received date is never changed.
 
 ### v1.2
 

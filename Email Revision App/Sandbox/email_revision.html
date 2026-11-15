@@ -3125,7 +3125,8 @@ This email has been pushed to the brief.
     // because they already hide the field and always send today's date (isRegistrationTriggeredEmail).
     // A held date is never checked against the send date rules (minimum days ahead, no weekends): it
     // may well be within 24 hours, and the person has no field to fix it, so it must not block
-    // Save, Push, Build or Approve.
+    // Save, Push, Build or Approve. If the email arrives with no send date at all, one is filled in on
+    // load with the calendar's rule (ensureRestrictedSendDate).
     function isSendDateRestricted(email) {
       return hasLockingRestriction(email) && !isRegistrationTriggeredEmail(email);
     }
@@ -5357,6 +5358,24 @@ This email has been pushed to the brief.
       return weekday === 0 || weekday === 6;
     }
 
+    // Default send date for a restricted email that arrived with no due_date (its Send date field is
+    // hidden, so the person can't set one). Uses the same rule as the Send date calendar: the earliest
+    // allowed day for the email (pre-event +7 days, reminder/post-event +3 days, confirmation family
+    // today), moved forward past any Saturday or Sunday, for every email type. Returns 'YYYY-MM-DD'.
+    function defaultRestrictedSendDate(email) {
+      let days = sendDateRule(email).minDays;
+      while (isWeekendDate(minimumSendDate(days))) days += 1;
+      return minimumSendDate(days);
+    }
+
+    // Fills in a restricted email's send date when it was received empty (see isSendDateRestricted).
+    // A received date is never changed. No-op for unrestricted emails.
+    function ensureRestrictedSendDate(email) {
+      if (isSendDateRestricted(email) && !email.sendDate) {
+        email.sendDate = defaultRestrictedSendDate(email);
+      }
+    }
+
     // The send date rule in words, for messages.
     function sendDateRuleText(email) {
       const rule = sendDateRule(email);
@@ -6891,6 +6910,8 @@ This email has been pushed to the brief.
       email.audienceSecured = flag(data.audience_secured);
       // Now that the restriction flags are known, keep a restricted email on its received design.
       enforceRestrictedDesign(email);
+      // ...and give it a send date if it arrived without one, since its Send date field is hidden.
+      ensureRestrictedSendDate(email);
       email.sendDatetime = data.send_datetime || email.sendDatetime || '';
       email.draftDatetime = data.draft_datetime || email.draftDatetime || '';
       email.emailTemplateFound = data.email_template_found;
