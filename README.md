@@ -117,6 +117,23 @@ Committed 2026-11-15.
 - The help tour's progress step reads "Save a draft, then build the email. Building sends you a test email, and you can save and build again as often as you need. …".
 - KBYG, cancellation and postponement emails are unchanged: they keep the reminder flow (Save draft → Build email → Approve).
 
+**Edit-only emails: Save draft → Build when the audience is secured or the email is scheduled**
+- Applies to every email type except confirmation and waitlist (pre-event, post-event, reminders, KBYG, cancellation, postponement) when any of these is true: `restrictions_audience_secured`, `audience_secured`, `email_schedule`, or `restrictions_send_within_24_hours`. The 24-hour flag only makes sense for a scheduled email, so it counts exactly like `email_schedule`. All four apply the same restrictions; this also extends the template/layout and send date locks above to `email_schedule`.
+- The progress bar is just Save draft → Build email. Push to brief and Approve are hidden.
+- Locked: template and layout, saved drafts, send date and email task. Editable: from name, reply-to, subject line, preheader, body paragraphs 1–3, CTA text, CTA URL, eyebrow, event title, event date and time, banner image.
+- Build calls `Email_Release_Pipeline` with `process_name` `edit_with_secure_audience_true` (audience secured, also when both are true) or `edit_with_email_schedule_true`, plus `marketo_program_id`, `tactic_link` and `emails[]` (one item: the usual email payload with `task_link` and every content field, plus `change_comment`). The change comment is sent on this Build, never on Save draft.
+- Build stays disabled with "This email can't be built: its program, tactic or task link is missing. Please reach out to MOPs." when any of those is empty, because the recipe would skip the email.
+- Success is `flag: true` only: the step shows Built, the background save records `build`, and the next-step line reads "This email has been built and a test email has been sent to your inbox." Anything else shows the returned `msg`, or "Build failed. Your changes were not applied to the email. Please try again.", and nothing is marked built.
+- They can save and build again as often as needed. An edit-only email saved as `approved` opens as Built and stays editable.
+- Confirmation and waitlist emails use the same "sent to your inbox" wording after a build.
+
+**Approved emails can be revised**
+- This is the revision app, so an approved email is no longer covered and read-only. Content, settings, template/layout and saved drafts stay open after approval (restricted emails still hide what is locked for them).
+- Editing an approved email marks it unsaved; Save draft records `draft` and the email goes through its steps again (Push to brief, Build, Approve, or just Build where the flow ends there).
+
+**No tool names in messages**
+- Fallback error messages no longer show the tool name ("Email_Release_Pipeline did not confirm success"). Build shows "Build failed. Please try again.", Approve "Approval failed. Please try again." and Push "Push failed. This email was not pushed to the brief." when the tool returns no `msg`. No message the person sees names a tool or platform.
+
 ### v1.2
 
 Committed 2026-11-14.

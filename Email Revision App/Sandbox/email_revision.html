@@ -3083,10 +3083,12 @@ This email has been pushed to the brief.
     // Restricted design lock (pre-event and post-event emails only).
     // Email_Editor_Utility sends revision restriction flags with each email. When ANY of these is true:
     //   - restrictions_audience_secured  (email.restrictions.audienceSecured)
-    //   - audience_secured               (email.audienceSecured; always comes with the one above)
-    //   - restrictions_send_within_24_hours (email.restrictions.sendWithin24Hours)
-    // the email's audience is already secured or it sends within 24 hours, so only its copy (subject,
-    // preheader, body, CTA text and similar content) may still change. The template and layout must
+    //   - audience_secured               (email.audienceSecured)
+    //   - email_schedule                 (email.emailSchedule)
+    //   - restrictions_send_within_24_hours (email.restrictions.sendWithin24Hours; an email can only
+    //     send within 24 hours once it is scheduled, so this counts exactly like email_schedule)
+    // the email's audience is already secured or it is already scheduled, so only its content (subject,
+    // preheader, body, CTA, event fields, banner, sender) may still change. See also isEditOnlyEmail. The template and layout must
     // stay exactly as received, so the app:
     //   1. hides the whole "Template and layout" box (renderTemplates / renderLayouts),
     //   2. hides the "Saved draft" picker, so earlier drafts (which may use another design) can't be
@@ -3104,12 +3106,21 @@ This email has been pushed to the brief.
     };
     const RESTRICTED_DEFAULT_LAYOUT_ID = 'gray-card'; // "Grey-Card-Layout"
 
-    // Whether any of the three locking revision flags (audience secured, or sending within 24 hours)
-    // is true on this email, whatever its type.
+    // Whether the email's audience is already secured (either audience flag).
+    function isAudienceSecured(email) {
+      return Boolean(email) && Boolean((email.restrictions || {}).audienceSecured || email.audienceSecured);
+    }
+
+    // Whether the email is already scheduled. restrictions_send_within_24_hours only makes sense for a
+    // scheduled email, so it counts as scheduled even if email_schedule itself came through false.
+    function isEmailScheduled(email) {
+      return Boolean(email) && Boolean(email.emailSchedule || (email.restrictions || {}).sendWithin24Hours);
+    }
+
+    // Whether any locking revision flag (audience secured, or email scheduled) is true on this email,
+    // whatever its type. Both flags apply exactly the same restrictions.
     function hasLockingRestriction(email) {
-      if (!email) return false;
-      const restrictions = email.restrictions || {};
-      return Boolean(restrictions.audienceSecured || email.audienceSecured || restrictions.sendWithin24Hours);
+      return isAudienceSecured(email) || isEmailScheduled(email);
     }
 
     // Whether the email's template and layout are locked by a revision restriction (see above).
@@ -5306,8 +5317,43 @@ This email has been pushed to the brief.
     // so the person can save and build as often as they like; each build sends a new test email.
     // Deactivating the campaign goes through MOPs. These emails also never send a change_comment,
     // which is only built on Approve (they have no task to tag).
+    //
+    // Edit-only emails (v1.3) end at Build too. Every other email type (pre-event, post-event,
+    // reminders, KBYG, cancellation, postponement) becomes edit-only when its audience is secured or it
+    // is already scheduled (hasLockingRestriction). The program is live, so the person may only change
+    // content: template, layout, saved drafts, send date and task are locked, and the flow is just
+    // Save draft -> Build email (no Push to brief, no Approve). Build calls Email_Release_Pipeline with
+    // process_name "edit_with_secure_audience_true" or "edit_with_email_schedule_true"
+    // (buildEditOnlyRequest), carrying the change_comment. They can save and build as often as needed.
     function endsAtBuild(email) {
-      return isRegistrationTriggeredEmail(email);
+      return isRegistrationTriggeredEmail(email) || isEditOnlyEmail(email);
+    }
+
+    // Whether the email is edit-only (see above). Confirmation and waitlist emails keep their own build.
+    function isEditOnlyEmail(email) {
+      return hasLockingRestriction(email) && !isRegistrationTriggeredEmail(email);
+    }
+
+    // Whether the email skips "Push to brief": reminders (and the confirmation family, which shares the
+    // reminder family) and edit-only emails.
+    function skipsPush(email) {
+      return isReminderEmail(email) || isEditOnlyEmail(email);
+    }
+
+    // The exact, case-sensitive process name the recipe matches for an edit-only build. Both run the
+    // same branch; audience secured wins when both flags are true.
+    function editOnlyProcessName(email) {
+      return isAudienceSecured(email) ? 'edit_with_secure_audience_true' : 'edit_with_email_schedule_true';
+    }
+
+    // Why an edit-only email can't be built yet, or ''. The recipe silently skips an email without a
+    // program, tactic link or task link, so Build stays disabled instead.
+    function editOnlyBuildBlocker(email) {
+      if (!isEditOnlyEmail(email)) return '';
+      if (!marketoProgramId || !tacticLink || !email.taskLink) {
+        return "This email can't be built: its program, tactic or task link is missing. Please reach out to MOPs.";
+      }
+      return '';
     }
 
     // Confirmation and waitlist emails don't show the Email task field at all.
@@ -5663,14 +5709,15 @@ This email has been pushed to the brief.
     // 3 = built, 4 = approved. An email that was pushed and then edited goes back to 0 because saving
     // it again resets the push.
     function emailStage(email) {
-      if (email.approved) {
+      // An approved email can still be revised; once edited it starts the steps again.
+      if (email.approved && !email.dirty) {
         return 4;
       }
       if (email.built && !email.dirty) {
         return 3;
       }
-      // Reminder emails skip "Push to brief": a saved draft goes straight to Build.
-      if (isReminderEmail(email) && email.saveStatus === 'saved' && !email.dirty) {
+      // Reminder and edit-only emails skip "Push to brief": a saved draft goes straight to Build.
+      if (skipsPush(email) && email.saveStatus === 'saved' && !email.dirty) {
         return 2;
       }
       if (email.confirmed && !email.dirty) {
@@ -5684,7 +5731,7 @@ This email has been pushed to the brief.
 
     // Short text for the left side of the tracker.
     function trackerStatusText(email) {
-      if (email.approved) {
+      if (email.approved && !email.dirty) {
         return 'Approved';
       }
       if (email.built && !email.dirty) {
@@ -5696,7 +5743,7 @@ This email has been pushed to the brief.
       if (email.saveStatus === 'error') {
         return email.saveError || saveFallbackMessage;
       }
-      if (email.confirmed && !email.dirty && !isReminderEmail(email)) {
+      if (email.confirmed && !email.dirty && !skipsPush(email)) {
         return 'Pushed to brief';
       }
       if (email.dirty) {
@@ -5739,9 +5786,9 @@ This email has been pushed to the brief.
         return { section: null, text: 'This email has been approved. No further action is needed.', tone: 'done' };
       }
       if (stage === 3) {
-        // Built is the last step for confirmation and waitlist emails (endsAtBuild).
+        // Built is the last step for confirmation, waitlist and edit-only emails (endsAtBuild).
         if (endsAtBuild(email)) {
-          return { section: null, text: 'This email has been built and a test email has been sent.', tone: 'done' };
+          return { section: null, text: 'This email has been built and a test email has been sent to your inbox.', tone: 'done' };
         }
         return { section: 'approve', text: 'Approve this email', tone: 'next' };
       }
@@ -5868,7 +5915,7 @@ This email has been pushed to the brief.
 
       const saveButton = document.querySelector('[data-save]');
       saveButton.disabled =
-        email.approved || saving || !email.dirty || taskBlocked || dueDateBlocked || blankBlocked;
+        saving || !email.dirty || taskBlocked || dueDateBlocked || blankBlocked;
 
       const pushBlocked = email.confirmed || bannerBlocked || taskBlocked || dueDateBlocked || blankBlocked || email.dirty;
       const pushDisabled = confirmInFlight || pushBlocked;
@@ -5876,9 +5923,10 @@ This email has been pushed to the brief.
       const confirmButton = document.querySelector('[data-confirm]');
       confirmButton.disabled = pushDisabled || email.confirmed || email.built || email.approved;
 
-      // Reminder emails don't use "Push to brief": hide that step and the connector line before it.
+      // Reminder and edit-only emails don't use "Push to brief": hide that step and the connector line
+      // before it.
       const pushStep = document.querySelector('[data-step="push"]');
-      const reminderEmail = isReminderEmail(email);
+      const reminderEmail = skipsPush(email);
       pushStep.hidden = reminderEmail;
       pushStep.style.display = reminderEmail ? 'none' : '';
       const pushLine = pushStep.previousElementSibling;
@@ -5886,7 +5934,7 @@ This email has been pushed to the brief.
         pushLine.style.display = reminderEmail ? 'none' : '';
       }
 
-      // Confirmation and waitlist emails end at Build (endsAtBuild): hide the Approve step and the
+      // Confirmation, waitlist and edit-only emails end at Build (endsAtBuild): hide the Approve step and the
       // connector line before it, the same way Push to brief is hidden above.
       const approveStep = document.querySelector('[data-step="approve"]');
       const noApprove = endsAtBuild(email);
@@ -5899,7 +5947,7 @@ This email has been pushed to the brief.
 
       const buildButton = document.querySelector('[data-build-email]');
       buildButton.disabled =
-        buildInFlight || !(email.confirmed || isReminderEmail(email)) || email.dirty || email.built || email.approved || taskBlocked || dueDateBlocked || blankBlocked;
+        buildInFlight || !(email.confirmed || skipsPush(email)) || email.dirty || email.built || email.approved || taskBlocked || dueDateBlocked || blankBlocked || Boolean(editOnlyBuildBlocker(email));
 
       document.querySelector('[data-approve]').disabled = endsAtBuild(email) || !email.built || email.dirty || email.approved || blankBlocked;
 
@@ -5923,7 +5971,7 @@ This email has been pushed to the brief.
             : email.dirty ? 'Save your draft first.' : '')
           : '',
         build: buildButton.disabled && stage < 3
-          ? (stage < 2 ? (reminderEmail ? 'Save your draft first.' : 'Push this email to the brief first.') : email.dirty ? 'Save your draft first.' : blankBlocked ? blankRequiredFieldsMessage(email) : '')
+          ? (stage < 2 ? (reminderEmail ? 'Save your draft first.' : 'Push this email to the brief first.') : email.dirty ? 'Save your draft first.' : blankBlocked ? blankRequiredFieldsMessage(email) : editOnlyBuildBlocker(email))
           : '',
         approve: document.querySelector('[data-approve]').disabled && stage < 4
           ? (!email.built ? 'Build this email first.' : blankBlocked ? blankRequiredFieldsMessage(email) : '')
@@ -5958,24 +6006,26 @@ This email has been pushed to the brief.
       buildLockOverlay.classList.toggle('show', Boolean(lockMessage));
       appShell.toggleAttribute('inert', Boolean(lockMessage));
 
-      // Once approved, the content preview and email settings are locked with a translucent cover so no
-      // further edits can be made. A built (not yet approved) email stays editable: editing it makes it
-      // dirty, and saving that draft sends it back through Push to brief and Build.
-      const contentLocked = email.approved;
+      // This is the revision app, so content is never locked, not even after approval (v1.3; before,
+      // an approved email was covered and read-only). Editing an approved or built email makes it
+      // dirty, and saving that draft sends it back through the steps again (Push to brief, Build,
+      // Approve, or just Build where the flow ends there).
+      const contentLocked = false;
       document.querySelector('[data-preview-lock]').hidden = !contentLocked;
       document.querySelector('.preview-canvas').toggleAttribute('inert', contentLocked);
       document.querySelector('[data-settings-lock]').hidden = !contentLocked;
       document.getElementById('email-settings-body').toggleAttribute('inert', contentLocked);
 
-      // Template/layout/saved-draft pickers stay open after a build, like content and settings; any edit
-      // makes the email dirty and sends it back to Save draft. Only approval locks them.
-      const designLocked = email.approved;
+      // Template/layout/saved-draft pickers stay open after a build and after approval, like content and
+      // settings; any edit makes the email dirty and sends it back to Save draft. (Restricted emails
+      // hide them instead, see isDesignRestricted.)
+      const designLocked = false;
       document.querySelector('.design-section').toggleAttribute('inert', designLocked);
       document.querySelector('[data-saved-draft-picker]').toggleAttribute('inert', designLocked);
 
       // Shown only once this email has been pushed to the brief. Reminder and confirmation-family emails
       // never go to the brief, so they never show it.
-      document.querySelector('[data-brief-ready]').classList.toggle('show', email.confirmed && !isReminderEmail(email));
+      document.querySelector('[data-brief-ready]').classList.toggle('show', email.confirmed && !skipsPush(email));
 
       updateGuide(email);
 
@@ -6584,6 +6634,20 @@ This email has been pushed to the brief.
       }));
     }
 
+    // Builds the Email_Release_Pipeline request for an edit-only email (see isEditOnlyEmail): the exact
+    // process name, the program and tactic, and the one email with its content fields (the usual email
+    // payload, which carries task_link, selected_subject_line, selected_preheader_line, body_para_1-3,
+    // cta_text, cta_url, eyebrow, event_title, event_datetime, banner_image, from_name and
+    // reply_to_email_address) plus change_comment. Success is flag: true, like every other build.
+    function buildEditOnlyRequest(email) {
+      return JSON.parse(JSON.stringify({
+        process_name: editOnlyProcessName(email),
+        marketo_program_id: marketoProgramId,
+        tactic_link: tacticLink,
+        emails: [{ ...buildEmailToken(email), change_comment: buildChangeComment(email) }],
+      }));
+    }
+
     // Unwraps the raw response from the Email_Release_Pipeline tool call into a plain result object
     // (handling structuredContent, a JSON string in content, a `.result` envelope, and array wrapping).
     function parseReleasePipelineResponse(raw) {
@@ -7057,6 +7121,11 @@ This email has been pushed to the brief.
       email.confirmed = normalizedState === 'briefed' || normalizedState === 'build' || normalizedState === 'approved';
       email.built = normalizedState === 'build' || normalizedState === 'approved';
       email.approved = normalizedState === 'approved';
+      // Edit-only emails have no Approve step: one saved as approved opens as Built, still editable.
+      if (isEditOnlyEmail(email) && email.approved) {
+        email.approved = false;
+        email.built = true;
+      }
       email.dirty = false;
       email.saveStatus = (normalizedState === 'draft' || normalizedState === 'briefed' || normalizedState === 'build' || normalizedState === 'approved') ? 'saved' : 'idle';
       email.saveError = '';
@@ -7254,16 +7323,15 @@ This email has been pushed to the brief.
       throw new Error(saveFallbackMessage);
     }
 
-    // Saves one email's current state via Email_Brief_Schema (no-op if it's already built/approved,
-    // mid-save, or has no unsaved changes), updating its saveStatus/saveError and clearing the dirty
-    // flag on success. A manual save always writes state "draft" — including for an email that was
-    // already pushed to the brief, since editing it after that push means the brief's content is now
-    // stale. Dropping `confirmed` back to false re-surfaces Push to Brief (and hides Build) via the
+    // Saves one email's current state via Email_Brief_Schema (no-op if it's mid-save, or has no unsaved
+    // changes), updating its saveStatus/saveError and clearing the dirty flag on success. A manual
+    // save always writes state "draft" — including for an email that was already pushed, built or
+    // approved, since editing it means it has to go through the steps again. Dropping `confirmed` back to false re-surfaces Push to Brief (and hides Build) via the
     // existing render() logic, with no separate "needs re-push" flag required.
     async function saveEmailById(emailId) {
       const email = emails.find((item) => item.id === emailId);
 
-      if (!email || email.approved || email.saveStatus === 'saving' || !email.dirty || blankRequiredFields(email).length) {
+      if (!email || email.saveStatus === 'saving' || !email.dirty || blankRequiredFields(email).length) {
         return;
       }
 
@@ -7287,6 +7355,8 @@ This email has been pushed to the brief.
         targetEmail.lastSavedSnapshot = payloadSnapshot;
         targetEmail.confirmed = false;
         targetEmail.built = false;
+        // Saving an edit to an approved email starts its steps again.
+        targetEmail.approved = false;
         render();
       } catch (error) {
         console.error(error);
@@ -7313,7 +7383,7 @@ This email has been pushed to the brief.
     // a reminder email (reminders skip Push to brief). The app edits one email, so there is no "push all".
     function emailsToPushFor() {
       const email = current();
-      return email && !email.confirmed && !isReminderEmail(email) ? [email] : [];
+      return email && !email.confirmed && !skipsPush(email) ? [email] : [];
     }
 
     let briefTabModal = null;
@@ -7544,7 +7614,7 @@ This email has been pushed to the brief.
           response.flag !== true
         ) {
           throw new Error(
-            response?.msg || 'Email_Release_Pipeline did not confirm success'
+            response?.msg || 'Push failed. This email was not pushed to the brief.'
           );
         }
 
@@ -7590,14 +7660,19 @@ This email has been pushed to the brief.
       }
 
       const email = current();
-      if (!email || !(email.confirmed || isReminderEmail(email)) || blankRequiredFields(email).length) {
+      if (!email || !(email.confirmed || skipsPush(email)) || blankRequiredFields(email).length || editOnlyBuildBlocker(email)) {
         return;
       }
 
       let payload;
+      const editOnly = isEditOnlyEmail(email);
       if (isRegistrationTriggeredEmail(email)) {
         // Confirmation and waitlist emails have their own build process and no brief tab.
         payload = buildRegistrationEmailRequest(email);
+      } else if (editOnly) {
+        // Edit-only emails (audience secured or scheduled) update the live program directly: no brief
+        // tab, and the change comment goes with this build.
+        payload = buildEditOnlyRequest(email);
       } else {
         // Reminder emails never go through the brief, so Build must not ask which brief tab to use:
         // resolve it silently (same as Approve). Any other email type still gets the tab picker when needed.
@@ -7625,7 +7700,10 @@ This email has been pushed to the brief.
           !response ||
           response.flag !== true
         ) {
-          throw new Error(response?.msg || 'Email_Release_Pipeline did not confirm success');
+          // No tool names in what the person sees.
+          throw new Error(response?.msg || (editOnly
+            ? 'Build failed. Your changes were not applied to the email. Please try again.'
+            : 'Build failed. Please try again.'));
         }
 
         email.built = true;
@@ -7920,7 +7998,7 @@ This email has been pushed to the brief.
           !response ||
           response.flag !== true
         ) {
-          throw new Error(response?.msg || 'Email_Release_Pipeline did not confirm success');
+          throw new Error(response?.msg || 'Approval failed. Please try again.');
         }
 
         email.approved = true;
