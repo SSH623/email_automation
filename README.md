@@ -64,7 +64,7 @@ If an app loads from a new domain, add it to this table and to the app's allowed
 | Tactic Selection | v1 | Initial release. Production and Sandbox are identical. |
 | Brief Builder | v1 | Initial release. Sandbox adds help text for the event fields (time zone, start time, end time, location, title) that Production does not have yet. |
 | Email Studio | v2.3 | Fixed MongoDB logo image in every email preview. See the changelog below. |
-| Email Revision App | v1.3 (Sandbox) | Loads one email for revision, with Enhance with AI on body paragraphs. Saves through `Email_Brief_Schema` "Save_Revision". Single-email push only, and the CTA URL keeps its UTM parameters. Audience-secured or within-24-hours pre-event/post-event emails keep their received template and layout. Not in Production yet. See the changelog below. |
+| Email Revision App | v1.3 (Sandbox) | Loads one email for revision, with Enhance with AI on body paragraphs. Saves through `Email_Brief_Schema` "Save_Revision". Single-email push only, and the CTA URL keeps its UTM parameters. Audience-secured or within-24-hours emails keep their received send date, and pre-event/post-event ones also keep their template and layout. Not in Production yet. See the changelog below. |
 
 When Sandbox changes are promoted to Production, bump the version here and add an entry to the app's changelog. Production keeps a single file; earlier versions live in the git history. Put the release date under each changelog entry.
 
@@ -84,6 +84,12 @@ Committed 2026-11-15.
 - The "Select your template and layout" next-step guidance is skipped, and the help tour leaves out the Template and Layout steps because their sections are hidden.
 - Unrestricted pre-event/post-event emails, reminders and confirmation-family emails (confirmation, waitlist, cancellation, postponement, KBYG) work as before, tour included.
 - The flags are still sent back unchanged on every save.
+
+**Restricted emails keep their send date**
+- When any of the same three flags is true, the send date the email was received with (`due_date`) is fixed. The app keeps it and sends it unchanged on every save (Save_Revision) and every Email_Release_Pipeline call.
+- The Send date field is hidden, and Reply-to and From name share the row as two columns, as for confirmation and waitlist emails.
+- Applies to every email type that has the flags, not only pre-event and post-event. Confirmation and waitlist emails are unchanged: their field was already hidden and they still send today's date.
+- The held date is not checked against the send date rules (minimum days ahead, no weekends), so it never shows a "Set a send date" warning or blocks Save, Push, Build or Approve. It may be within 24 hours, and there is no field to fix it.
 
 ### v1.2
 

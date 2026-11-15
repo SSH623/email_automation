@@ -3104,11 +3104,30 @@ This email has been pushed to the brief.
     };
     const RESTRICTED_DEFAULT_LAYOUT_ID = 'gray-card'; // "Grey-Card-Layout"
 
+    // Whether any of the three locking revision flags (audience secured, or sending within 24 hours)
+    // is true on this email, whatever its type.
+    function hasLockingRestriction(email) {
+      if (!email) return false;
+      const restrictions = email.restrictions || {};
+      return Boolean(restrictions.audienceSecured || email.audienceSecured || restrictions.sendWithin24Hours);
+    }
+
     // Whether the email's template and layout are locked by a revision restriction (see above).
     function isDesignRestricted(email) {
       if (!email || isReminderEmail(email) || !RESTRICTED_DEFAULT_TEMPLATES[email.renderFamily]) return false;
-      const restrictions = email.restrictions || {};
-      return Boolean(restrictions.audienceSecured || email.audienceSecured || restrictions.sendWithin24Hours);
+      return hasLockingRestriction(email);
+    }
+
+    // Restricted send date lock (v1.3). When any locking flag is true, the send date the email was
+    // received with (due_date) is fixed: the app keeps that value and sends it back unchanged on every
+    // save and Email_Release_Pipeline call, but the Send date field is hidden so it can't be changed.
+    // Applies to every email type that has the flags. Confirmation and waitlist emails are left out
+    // because they already hide the field and always send today's date (isRegistrationTriggeredEmail).
+    // A held date is never checked against the send date rules (minimum days ahead, no weekends): it
+    // may well be within 24 hours, and the person has no field to fix it, so it must not block
+    // Save, Push, Build or Approve.
+    function isSendDateRestricted(email) {
+      return hasLockingRestriction(email) && !isRegistrationTriggeredEmail(email);
     }
 
     // Keeps a restricted email on the template and layout it was received with. The Email Studio can't
@@ -5350,6 +5369,8 @@ This email has been pushed to the brief.
     // 'weekend' when the email's rule forbids weekends and the date is a Saturday or Sunday.
     function sendDateProblem(email) {
       if (isRegistrationTriggeredEmail(email)) return '';
+      // A restricted email's received send date is held as is and never validated (isSendDateRestricted).
+      if (isSendDateRestricted(email)) return '';
       if (!email.sendDate) return 'missing';
       if (email.sendDate < minimumSendDateFor(email)) return 'early';
       if (sendDateRule(email).noWeekends && isWeekendDate(email.sendDate)) return 'weekend';
@@ -5506,10 +5527,12 @@ This email has been pushed to the brief.
         sendDateHelp.textContent = 'The day this email goes out (' + sendDateRuleText(email) + ').';
       }
       // Confirmation and waitlist emails always go out on registration, so their Send date is hidden
-      // (today's date is sent instead) and the row closes up to two columns.
-      const triggered = isRegistrationTriggeredEmail(email);
-      sendDate.closest('label').hidden = triggered;
-      sendDate.closest('.settings-row3').classList.toggle('is-two', triggered);
+      // (today's date is sent instead) and the row closes up to two columns. Restricted emails
+      // (audience secured or sending within 24 hours, see isSendDateRestricted) hide it the same way;
+      // their received send date is kept in email.sendDate and sent unchanged.
+      const sendDateHidden = isRegistrationTriggeredEmail(email) || isSendDateRestricted(email);
+      sendDate.closest('label').hidden = sendDateHidden;
+      sendDate.closest('.settings-row3').classList.toggle('is-two', sendDateHidden);
       document.querySelector('[data-field="ctaUrl"]').value = email.ctaUrl || defaultCtaUrl(email);
       ctaUrlWrapper.hidden = email.template === 'Operational-Update';
       renderBannerControl(email);
