@@ -2795,7 +2795,7 @@ From name
 <span class="field-label">
 Send date
 </span>
-<span class="field-help">The day this email goes out (at least 7 days from today).</span>
+<span class="field-help">The day this email goes out (at least 7 days from today and not on a weekend).</span>
 <input aria-label="Send date" data-field="sendDate" type="date"/>
 <span class="task-error" data-send-date-error aria-live="polite" hidden></span>
 </label>
@@ -5338,11 +5338,12 @@ This email has been pushed to the brief.
     // - confirmation family: today or any future date, weekends allowed.
     // - reminder and post-event families: at least 3 days from today (so tomorrow and the day after
     //   are blocked), and never a Saturday or Sunday.
-    // - pre-event (and anything else): at least 7 days from today.
+    // - pre-event (and anything else): at least 7 days from today, and never a Saturday or Sunday
+    //   (v1.3: before, pre-event emails could be scheduled on a weekend).
     function sendDateRule(email) {
       if (isConfirmationFamilyEmail(email)) return { minDays: 0, noWeekends: false };
       if (isReminderEmail(email) || email.businessFamily === 'post-event') return { minDays: 3, noWeekends: true };
-      return { minDays: 7, noWeekends: false };
+      return { minDays: 7, noWeekends: true };
     }
 
     // Earliest allowed send date for this email, as 'YYYY-MM-DD'.
@@ -5380,7 +5381,7 @@ This email has been pushed to the brief.
     function sendDateRuleText(email) {
       const rule = sendDateRule(email);
       if (rule.minDays === 0) return 'today or later';
-      if (rule.noWeekends) return 'at least 3 days from today and not on a weekend';
+      if (rule.noWeekends) return 'at least ' + rule.minDays + ' days from today and not on a weekend';
       return 'at least ' + rule.minDays + ' days from today';
     }
 

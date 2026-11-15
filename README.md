@@ -92,6 +92,11 @@ Committed 2026-11-15.
 - The held date is not checked against the send date rules (minimum days ahead, no weekends), so it never shows a "Set a send date" warning or blocks Save, Push, Build or Approve. It may be within 24 hours, and there is no field to fix it.
 - If a restricted email arrives with no `due_date`, the app sets one on load with the calendar's rule: the earliest allowed day (pre-event 7 days from today, reminder and post-event 3 days, confirmation family today), moved forward past any Saturday or Sunday. That date is then held like a received one. A received date is never changed.
 
+**Pre-event emails can't be sent on a weekend**
+- The pre-event send date rule is now at least 7 days from today and never a Saturday or Sunday, like reminder and post-event emails (at least 3 days, no weekends). Before, a pre-event email could be scheduled on a weekend.
+- A weekend date is outlined red with "Send date must be at least 7 days from today and not on a weekend." and blocks Save, Push, Build and Approve. The field help and the next-step message use the same wording; the reminder/post-event message now reads its own day count instead of a fixed "3 days".
+- Confirmation-family emails are unchanged (today or later, weekends allowed).
+
 ### v1.2
 
 Committed 2026-11-14.
