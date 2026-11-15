@@ -3080,6 +3080,51 @@ This email has been pushed to the brief.
       email.layout = REMINDER_LAYOUT_ID;
     }
 
+    // Restricted design lock (pre-event and post-event emails only).
+    // Email_Editor_Utility sends revision restriction flags with each email. When ANY of these is true:
+    //   - restrictions_audience_secured  (email.restrictions.audienceSecured)
+    //   - audience_secured               (email.audienceSecured; always comes with the one above)
+    //   - restrictions_send_within_24_hours (email.restrictions.sendWithin24Hours)
+    // the email's audience is already secured or it sends within 24 hours, so only its copy (subject,
+    // preheader, body, CTA text and similar content) may still change. The template and layout must
+    // stay exactly as received, so the app:
+    //   1. hides the whole "Template and layout" box (renderTemplates / renderLayouts),
+    //   2. hides the "Saved draft" picker, so earlier drafts (which may use another design) can't be
+    //      seen or loaded (renderSavedDraftPicker / handleSavedDraftSelectChange),
+    //   3. renders the preview with only the received template and layout (enforceRestrictedDesign),
+    //   4. skips the "Select your template and layout" guidance step; the help tour drops the Template
+    //      and Layout steps on its own because their sections are hidden.
+    // Reminder and confirmation-family emails are never affected here: they already have their own
+    // locked design (enforceReminderDesign) and keep their current behaviour and tour.
+    const RESTRICTED_DEFAULT_TEMPLATES = {
+      // Shows every token field: eyebrow, event title, event date/time, CTA and banner.
+      'pre-event': 'Promotional-Text-Header + CTA + Banner',
+      // The post-event template other than Operational-Update.
+      'post-event': 'Post-Event-Follow-Up',
+    };
+    const RESTRICTED_DEFAULT_LAYOUT_ID = 'gray-card'; // "Grey-Card-Layout"
+
+    // Whether the email's template and layout are locked by a revision restriction (see above).
+    function isDesignRestricted(email) {
+      if (!email || isReminderEmail(email) || !RESTRICTED_DEFAULT_TEMPLATES[email.renderFamily]) return false;
+      const restrictions = email.restrictions || {};
+      return Boolean(restrictions.audienceSecured || email.audienceSecured || restrictions.sendWithin24Hours);
+    }
+
+    // Keeps a restricted email on the template and layout it was received with. The Email Studio can't
+    // normally open an email without them, but if either is missing or not one this app knows, it falls
+    // back to the defaults above so the preview still renders. No-op for unrestricted emails.
+    function enforceRestrictedDesign(email) {
+      if (!isDesignRestricted(email)) return;
+      const familyTemplates = templates[email.renderFamily] || [];
+      if (!familyTemplates.includes(email.template)) {
+        email.template = RESTRICTED_DEFAULT_TEMPLATES[email.renderFamily];
+      }
+      if (!layouts.some((layout) => layout.id === email.layout)) {
+        email.layout = RESTRICTED_DEFAULT_LAYOUT_ID;
+      }
+    }
+
     const bannerRequiredTemplates = new Set([
       'Promotional-Image Header',
       'Promotional-Text-Header + CTA + Banner',
@@ -4145,9 +4190,12 @@ This email has been pushed to the brief.
     function renderTemplates() {
       const email = current();
       const tabs = document.querySelector('[data-template-tabs]');
-      tabs.closest('.template-section').hidden = isReminderEmail(email);
-      // Reminder emails have a locked design, so the whole "Template and layout" box is hidden.
-      document.querySelector('.design-section').hidden = isReminderEmail(email);
+      // Reminder emails have a locked design, and restricted pre-event/post-event emails (audience
+      // secured or sending within 24 hours, see isDesignRestricted) must keep the design they were
+      // received with, so in both cases the whole "Template and layout" box is hidden.
+      const designHidden = isReminderEmail(email) || isDesignRestricted(email);
+      tabs.closest('.template-section').hidden = designHidden;
+      document.querySelector('.design-section').hidden = designHidden;
 
       const templatesForEmail = templates[email.renderFamily || email.stage] || [];
       tabs.innerHTML = templatesForEmail.map((template) => '<button type="button" class="template-tab" role="tab" aria-selected="' + (email.template === template ? 'true' : 'false') + '" data-template="' + esc(template) + '">' + esc(template) + '</button>').join('');
@@ -4166,7 +4214,7 @@ This email has been pushed to the brief.
     function renderLayouts() {
       const email = current();
       const container = document.querySelector('[data-layout-buttons]');
-      container.closest('.layout-section').hidden = isReminderEmail(email);
+      container.closest('.layout-section').hidden = isReminderEmail(email) || isDesignRestricted(email);
 
       container.innerHTML = layouts.map((layout) => '<button type="button" class="layout-button" aria-pressed="' + (email.layout === layout.id ? 'true' : 'false') + '" data-layout="' + layout.id + '">' + layout.name + '</button>').join('');
 
@@ -5476,7 +5524,9 @@ This email has been pushed to the brief.
     function renderSavedDraftPicker(email) {
       const wrapper = document.querySelector('[data-saved-draft-picker]');
       const select = document.querySelector('[data-saved-draft-select]');
-      const variants = email.savedVariants || [];
+      // Restricted emails (audience secured or sending within 24 hours, see isDesignRestricted) can't
+      // view or load earlier drafts, so the picker is hidden for them like it is when there are none.
+      const variants = isDesignRestricted(email) ? [] : (email.savedVariants || []);
 
       wrapper.hidden = variants.length === 0;
       if (!variants.length) {
@@ -5507,7 +5557,9 @@ This email has been pushed to the brief.
     // and re-renders.
     function handleSavedDraftSelectChange(event) {
       const email = current();
-      if (!email) {
+      // The picker is hidden for restricted emails; this guard makes sure a saved draft can never be
+      // applied to one anyway.
+      if (!email || isDesignRestricted(email)) {
         return;
       }
 
@@ -5671,7 +5723,8 @@ This email has been pushed to the brief.
       if (!progress.settings) {
         return { section: 'settings', text: 'Update your email settings', tone: 'next' };
       }
-      if (!progress.design && !isReminderEmail(email)) {
+      // No template/layout step when the box is hidden (reminders and restricted emails).
+      if (!progress.design && !isReminderEmail(email) && !isDesignRestricted(email)) {
         return { section: 'design', text: 'Select your template and layout', tone: 'next' };
       }
       if (blankRequiredFields(email).length) {
@@ -6796,8 +6849,10 @@ This email has been pushed to the brief.
       email.taskLink = data.task_link || email.taskLink;
       email.taskName = data.task_name || email.taskName;
 
-      // Revision restrictions and scheduling flags from Email_Editor_Utility. Accepted and kept for
-      // now; nothing in the UI enforces them yet.
+      // Revision restrictions and scheduling flags from Email_Editor_Utility. All are kept and sent
+      // back on save. restrictions_audience_secured, audience_secured and
+      // restrictions_send_within_24_hours lock the template and layout of pre-event/post-event emails
+      // (enforceRestrictedDesign below, see isDesignRestricted); the others are not enforced yet.
       const flag = (value) => value === true || value === 'true';
       email.restrictions = {
         audienceSecured: flag(data.restrictions_audience_secured),
@@ -6811,6 +6866,8 @@ This email has been pushed to the brief.
       };
       email.emailSchedule = flag(data.email_schedule);
       email.audienceSecured = flag(data.audience_secured);
+      // Now that the restriction flags are known, keep a restricted email on its received design.
+      enforceRestrictedDesign(email);
       email.sendDatetime = data.send_datetime || email.sendDatetime || '';
       email.draftDatetime = data.draft_datetime || email.draftDatetime || '';
       email.emailTemplateFound = data.email_template_found;
@@ -8077,7 +8134,8 @@ This email has been pushed to the brief.
 
       helpButton.addEventListener('click', () => {
         // Only tour what is visible right now: steps whose target is missing or hidden (e.g. the
-        // template/layout pickers on reminder emails) are dropped, and the progress step leaves out
+        // template/layout pickers on reminder emails and on restricted pre-event/post-event emails)
+        // are dropped, and the progress step leaves out
         // "push it to the brief" when that step is hidden.
         const allSteps = tour.__allSteps || (tour.__allSteps = tour.getConfig().steps || []);
         const pushVisible = isTourTargetVisible(document.querySelector('[data-step="push"]'));

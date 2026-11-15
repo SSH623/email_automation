@@ -64,13 +64,26 @@ If an app loads from a new domain, add it to this table and to the app's allowed
 | Tactic Selection | v1 | Initial release. Production and Sandbox are identical. |
 | Brief Builder | v1 | Initial release. Sandbox adds help text for the event fields (time zone, start time, end time, location, title) that Production does not have yet. |
 | Email Studio | v2.3 | Fixed MongoDB logo image in every email preview. See the changelog below. |
-| Email Revision App | v1.2 (Sandbox) | Loads one email for revision, with Enhance with AI on body paragraphs. Saves through `Email_Brief_Schema` "Save_Revision". Single-email push only, and the CTA URL keeps its UTM parameters. Not in Production yet. See the changelog below. |
+| Email Revision App | v1.3 (Sandbox) | Loads one email for revision, with Enhance with AI on body paragraphs. Saves through `Email_Brief_Schema` "Save_Revision". Single-email push only, and the CTA URL keeps its UTM parameters. Audience-secured or within-24-hours pre-event/post-event emails keep their received template and layout. Not in Production yet. See the changelog below. |
 
 When Sandbox changes are promoted to Production, bump the version here and add an entry to the app's changelog. Production keeps a single file; earlier versions live in the git history. Put the release date under each changelog entry.
 
 ## Email Revision App Changelog
 
 Sandbox only for now (`Email Revision App/Sandbox/email_revision.html`, started as a copy of Email Studio v2.3). Each push adds the next version here. Commits made between two pushes all belong to the same version and are listed under it.
+
+### v1.3
+
+Committed 2026-11-15.
+
+**Restricted emails keep their template and layout**
+- Applies to pre-event and post-event emails when any of these flags from `Email_Editor_Utility` is true: `restrictions_audience_secured`, `audience_secured` (always sent together with the first), `restrictions_send_within_24_hours`. The audience is already secured or the email sends within 24 hours, so only the copy (subject, preheader, body, CTA text) can still change.
+- The whole "Template and layout" box is hidden. The content preview shows only the template and layout the email was received with.
+- The "Saved draft" picker is hidden too, so earlier drafts can't be seen or loaded. Picking a saved draft is also blocked in code.
+- If the received template or layout is missing or unknown, the preview falls back to `Promotional-Text-Header + CTA + Banner` (pre-event, shows every token field) or `Post-Event-Follow-Up` (post-event), with `Grey-Card-Layout`.
+- The "Select your template and layout" next-step guidance is skipped, and the help tour leaves out the Template and Layout steps because their sections are hidden.
+- Unrestricted pre-event/post-event emails, reminders and confirmation-family emails (confirmation, waitlist, cancellation, postponement, KBYG) work as before, tour included.
+- The flags are still sent back unchanged on every save.
 
 ### v1.2
 
