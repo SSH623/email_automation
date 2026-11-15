@@ -5329,22 +5329,24 @@ This email has been pushed to the brief.
     }
 
     // Whether the email is in the confirmation family (cancellation, postponement, confirmation,
-    // waitlist, KBYG). These share the reminder design and, from v1.3, the same send date rule as
-    // reminders (today or later).
+    // waitlist, KBYG). These share the reminder design but have their own send date rule (today or
+    // later, weekends allowed).
     function isConfirmationFamilyEmail(email) {
       return Boolean(email) && Boolean(confirmationFamilyTypes[String(email.emailType || '').trim().toLowerCase()]);
     }
 
     // Send date rule for this email:
-    // - confirmation family and reminders: today or any future date, weekends allowed. Reminders
-    //   need no QA, so marketers can create and deploy them right away (v1.3: before, reminders
-    //   followed the post-event rule below).
+    // - confirmation family: today or any future date, weekends allowed.
+    // - reminders: today or any future date, but never a Saturday or Sunday. Reminders need no QA,
+    //   so marketers can create and deploy them right away (v1.3: before, reminders followed the
+    //   post-event rule below).
     // - post-event family: at least 3 days from today (so tomorrow and the day after are blocked),
     //   and never a Saturday or Sunday.
     // - pre-event (and anything else): at least 7 days from today, and never a Saturday or Sunday
     //   (v1.3: before, pre-event emails could be scheduled on a weekend).
     function sendDateRule(email) {
-      if (isConfirmationFamilyEmail(email) || isReminderEmail(email)) return { minDays: 0, noWeekends: false };
+      if (isConfirmationFamilyEmail(email)) return { minDays: 0, noWeekends: false };
+      if (isReminderEmail(email)) return { minDays: 0, noWeekends: true };
       if (email.businessFamily === 'post-event') return { minDays: 3, noWeekends: true };
       return { minDays: 7, noWeekends: true };
     }
@@ -5383,7 +5385,7 @@ This email has been pushed to the brief.
     // The send date rule in words, for messages.
     function sendDateRuleText(email) {
       const rule = sendDateRule(email);
-      if (rule.minDays === 0) return 'today or later';
+      if (rule.minDays === 0) return rule.noWeekends ? 'today or later and not on a weekend' : 'today or later';
       if (rule.noWeekends) return 'at least ' + rule.minDays + ' days from today and not on a weekend';
       return 'at least ' + rule.minDays + ' days from today';
     }
