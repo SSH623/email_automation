@@ -6696,6 +6696,96 @@ This email has been pushed to the brief.
       }));
     }
 
+    // ---- Change comment (v1.3) ----
+    // On Approve, the Email_Release_Pipeline "approve" request carries emails[0].change_comment: one
+    // plain sentence (no bullets, no line breaks, not AI-written) naming what changed between the
+    // previous saved draft and the email being approved, e.g. "Updated the subject line and body
+    // paragraph 3." The recipe uses it when it tags the assignee on approval.
+    //
+    // Only that one pair is compared, not the whole history: email.previousDraftContent holds the
+    // content of the last saved draft whose content differs from the latest save. Saves that repeat
+    // the same content (the automatic Push/Build saves, or a Save with no real edit) are skipped.
+    // - On load it is the newest earlier draft in savedVariants that differs from the newest one.
+    // - After each manual Save that changes content, it becomes the content saved before it.
+    // The fields compared and their wording, in the fixed order they appear in the sentence:
+    const CHANGE_COMMENT_FIELDS = [
+      { key: 'subject_line_1', label: 'the subject line' },
+      { key: 'preheader_text_1', label: 'the preheader' },
+      { key: 'body_para_1', body: 1 },
+      { key: 'body_para_2', body: 2 },
+      { key: 'body_para_3', body: 3 },
+      { key: 'cta_text', label: 'the CTA text' },
+      { key: 'eyebrow', label: 'the eyebrow' },
+      { key: 'event_title', label: 'the event title' },
+      { key: 'event_datetime', label: 'the event date and time' },
+      { key: 'from_name', label: 'the from name' },
+      { key: 'reply_to_email_address', label: 'the reply-to address' },
+    ];
+
+    // The comparable content of a saved draft row or revision_email entry: each field above as a
+    // trimmed string, with body paragraphs run through normalizeBodyFragment so markup-only
+    // differences (such as the bullet <p> clean-up) don't count as changes.
+    function changeContentOf(fields) {
+      const source = fields || {};
+      const content = {};
+      CHANGE_COMMENT_FIELDS.forEach((field) => {
+        const value = source[field.key] == null ? '' : String(source[field.key]);
+        // An empty From name is saved as the default, so treat the two as the same.
+        if (field.key === 'from_name' && !value.trim()) {
+          content[field.key] = defaultFromName;
+          return;
+        }
+        content[field.key] = (field.body ? normalizeBodyFragment(value) : value).trim();
+      });
+      return content;
+    }
+
+    // Whether two changeContentOf results differ in any field.
+    function changeContentDiffers(left, right) {
+      return CHANGE_COMMENT_FIELDS.some((field) => (left || {})[field.key] !== (right || {})[field.key]);
+    }
+
+    // Joins phrases as "a", "a and b" or "a, b and c".
+    function joinChangePhrases(phrases) {
+      if (phrases.length <= 1) return phrases.join('');
+      return phrases.slice(0, -1).join(', ') + ' and ' + phrases[phrases.length - 1];
+    }
+
+    // The one-sentence change comment for the email being approved (see the block comment above).
+    function buildChangeComment(email) {
+      const previous = email.previousDraftContent;
+      if (!previous) {
+        return 'First version, no earlier draft to compare.';
+      }
+      const currentContent = changeContentOf(buildRevisionEmailFields(email, 'approved'));
+      const changed = CHANGE_COMMENT_FIELDS.filter((field) => previous[field.key] !== currentContent[field.key]);
+      if (!changed.length) {
+        return 'No content changes.';
+      }
+      // Each changed field is named on its own, so the sentence is unambiguous when it is long:
+      // "Updated the subject line, body paragraph 1, body paragraph 3 and the CTA text."
+      const phrases = changed.map((field) => field.label || 'body paragraph ' + field.body);
+      return 'Updated ' + joinChangePhrases(phrases) + '.';
+    }
+
+    // Sets email.previousDraftContent on load from the saved drafts (newest first): the newest earlier
+    // draft whose content differs from the newest one, or null when there is none.
+    function initPreviousDraftContent(email, rows) {
+      const latest = changeContentOf(rows[0]);
+      const earlier = rows.slice(1).map(changeContentOf).find((content) => changeContentDiffers(content, latest));
+      email.previousDraftContent = earlier || null;
+    }
+
+    // After a successful manual save: when the new save changed content, the content saved before it
+    // becomes the previous draft. A save with the same content leaves it as it was.
+    function recordSavedDraftContent(email, previousSnapshot, newSnapshot) {
+      const before = changeContentOf(previousSnapshot && previousSnapshot.revision_email && previousSnapshot.revision_email[0]);
+      const after = changeContentOf(newSnapshot && newSnapshot.revision_email && newSnapshot.revision_email[0]);
+      if (previousSnapshot && changeContentDiffers(before, after)) {
+        email.previousDraftContent = before;
+      }
+    }
+
     // Unwraps the raw response from an Email_Brief_Schema "Save_Revision" call into a plain result object
     // (handling structuredContent, a JSON string in content, a `.result` envelope, and array wrapping).
     function parseSaveResponse(raw) {
@@ -7164,6 +7254,8 @@ This email has been pushed to the brief.
         targetEmail.dirty = false;
         targetEmail.saveStatus = 'saved';
         targetEmail.saveError = '';
+        // Keep the change-comment baseline current before the snapshot is replaced.
+        recordSavedDraftContent(targetEmail, targetEmail.lastSavedSnapshot, payloadSnapshot);
         targetEmail.lastSavedSnapshot = payloadSnapshot;
         targetEmail.confirmed = false;
         targetEmail.built = false;
@@ -7777,6 +7869,9 @@ This email has been pushed to the brief.
         processName: 'approve',
         schedule,
       });
+      // One plain sentence naming what changed since the previous saved draft (buildChangeComment).
+      // Sent only on approve, inside the email object.
+      payload.emails[0].change_comment = buildChangeComment(email);
 
       approvalInFlight = true;
       document.querySelector('[data-approval-confirm]').disabled = true;
@@ -8051,6 +8146,8 @@ This email has been pushed to the brief.
       // start as "Not saved" even if it was already pushed, built or approved.
       hydrateEmailFromSavedState(email, rows[0]);
       email.savedVariants = rows;
+      // Baseline for the change comment sent on Approve (see buildChangeComment).
+      initPreviousDraftContent(email, rows);
       if (!email.taskLink) {
         email.taskLink = launchTaskLink;
       }

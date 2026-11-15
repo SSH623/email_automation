@@ -102,6 +102,13 @@ Committed 2026-11-15.
 - A restricted reminder that arrives with no send date now gets today, or the next Monday if today is a weekend.
 - Post-event stays at least 3 days from today, no weekends.
 
+**Change comment on Approve**
+- The Email_Release_Pipeline `approve` request now carries `change_comment` inside the email object in `emails[]`. It is one plain sentence (no bullets, no line breaks, not written by AI) naming what changed between the previous saved draft and the email being approved. The recipe uses it when it tags the assignee.
+- Format: "Updated " + the changed fields + ".", in a fixed order: the subject line, the preheader, body paragraph 1, body paragraph 2, body paragraph 3, the CTA text, the eyebrow, the event title, the event date and time, the from name, the reply-to address. Fields are joined with commas and "and". Example: "Updated the subject line, body paragraph 1 and the CTA text."
+- "No content changes." when nothing differs, and "First version, no earlier draft to compare." when there is no earlier draft.
+- Only the last change is described, not the whole history: the comparison is against the last saved draft whose content differs from the latest one. Saves that repeat the same content (the automatic Push and Build saves, or a Save with no real edit) are skipped. On load the previous draft comes from the saved drafts; after each Save that changes content, the content saved before it becomes the previous draft.
+- Body paragraphs are compared after the usual clean-up, so markup-only differences don't count. An empty From name counts as `MongoDB`, the value it is saved as.
+
 ### v1.2
 
 Committed 2026-11-14.
