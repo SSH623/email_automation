@@ -64,13 +64,23 @@ If an app loads from a new domain, add it to this table and to the app's allowed
 | Tactic Selection | v1 | Initial release. Production and Sandbox are identical. |
 | Brief Builder | v1 | Initial release. Sandbox adds help text for the event fields (time zone, start time, end time, location, title) that Production does not have yet. |
 | Email Studio | v2.3 | Fixed MongoDB logo image in every email preview. See the changelog below. |
-| Email Revision App | v1.4 (Sandbox) | Loads one email for revision, with Enhance with AI on body paragraphs. Saves through `Email_Brief_Schema` "Save_Revision". Single-email push only, and the CTA URL keeps its UTM parameters. Audience-secured or scheduled emails keep their received send date and banner, build against their own Marketo program, and pre-event/post-event ones also keep their template and layout. Not in Production yet. See the changelog below. |
+| Email Revision App | v1.5 (Sandbox) | Loads one email for revision, with Enhance with AI on body paragraphs. Long or HTML tool errors are replaced by a short message. Saves through `Email_Brief_Schema` "Save_Revision". Single-email push only, and the CTA URL keeps its UTM parameters. Audience-secured or scheduled emails keep their received send date and banner, build against their own Marketo program, and pre-event/post-event ones also keep their template and layout. Not in Production yet. See the changelog below. |
 
 When Sandbox changes are promoted to Production, bump the version here and add an entry to the app's changelog. Production keeps a single file; earlier versions live in the git history. Put the release date under each changelog entry.
 
 ## Email Revision App Changelog
 
 Sandbox only for now (`Email Revision App/Sandbox/email_revision.html`, started as a copy of Email Studio v2.3). Each push adds the next version here. Commits made between two pushes all belong to the same version and are listed under it.
+
+### v1.5
+
+Committed 2026-11-16.
+
+**No raw tool errors in the app view**
+- A tool's `msg` is now shown only when it is short plain text. Anything that looks like HTML (`<!DOCTYPE`, `<html>`, `<body>`, `<script>`, `<div>` and similar) or is longer than 300 characters is replaced by a short message, and the full text goes to the browser console. Before, a recipe that passed through an upstream error (such as Google's whole "Page Not Found" page for a bad `brief_document_id`) filled the app view with HTML.
+- Loading screen: "Unable to load this email. Please reach out to MOPs via #ask-mops Slack channel."
+- Push, Build, Approve, banner upload and Refresh keep their usual short fallbacks ("Build failed. Please try again.", and so on).
+- Short messages such as "Email Content missing" still show as they are.
 
 ### v1.4
 

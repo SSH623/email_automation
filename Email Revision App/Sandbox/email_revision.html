@@ -6735,6 +6735,29 @@ This email has been pushed to the brief.
 
     const defaultFromName = 'MongoDB';
 
+    // ---- Tool messages shown to the person ----
+    // A tool's `msg` is shown as-is in the app (loading screen, status line, banner error, approval
+    // dialog). Some recipes pass a whole upstream error through, such as Google's full "Page Not
+    // Found" HTML page, which would fill the app view. friendlyToolMessage shows the msg only when it
+    // is short plain text; anything that looks like HTML or runs over 300 characters is replaced by the
+    // caller's fallback, and the full text goes to the console for debugging.
+    const loadErrorFallbackMessage = 'Unable to load this email. Please reach out to MOPs via #ask-mops Slack channel.';
+    const toolErrorFallbackMessage = 'Something went wrong. Please try again, or reach out to MOPs via #ask-mops Slack channel.';
+    const TOOL_MESSAGE_MAX_LENGTH = 300;
+
+    function friendlyToolMessage(message, fallback = toolErrorFallbackMessage) {
+      const text = String(message == null ? '' : message).trim();
+      if (!text) {
+        return fallback;
+      }
+      const looksLikeHtml = /<\s*(!doctype|html|head|body|script|style|div|meta|title)\b/i.test(text);
+      if (looksLikeHtml || text.length > TOOL_MESSAGE_MAX_LENGTH) {
+        console.error('[tool message] hidden from the app view, full text:', text);
+        return fallback;
+      }
+      return text;
+    }
+
     // Builds one entry of the `revision_email` array for an Email_Brief_Schema "Save_Revision" call:
     // every editable field of the email, tagged with the given lifecycle `state`
     // (draft/briefed/build/approved). The subject and preheader are whatever is in their input box.
@@ -7277,7 +7300,7 @@ This email has been pushed to the brief.
           response.flag !== true ||
           !response.banner_image_url
         ) {
-          throw new Error(response?.msg || bannerUploadFallbackMessage);
+          throw new Error(friendlyToolMessage(response?.msg, bannerUploadFallbackMessage));
         }
 
         await verifyImageLoads(response.banner_image_url);
@@ -7642,7 +7665,7 @@ This email has been pushed to the brief.
           response.flag !== true
         ) {
           throw new Error(
-            response?.msg || 'Push failed. This email was not pushed to the brief.'
+            friendlyToolMessage(response?.msg, 'Push failed. This email was not pushed to the brief.')
           );
         }
 
@@ -7729,7 +7752,7 @@ This email has been pushed to the brief.
           response.flag !== true
         ) {
           // No tool names in what the person sees.
-          throw new Error(response?.msg || (editOnly
+          throw new Error(friendlyToolMessage(response?.msg, editOnly
             ? 'Build failed. Your changes were not applied to the email. Please try again.'
             : 'Build failed. Please try again.'));
         }
@@ -8026,7 +8049,7 @@ This email has been pushed to the brief.
           !response ||
           response.flag !== true
         ) {
-          throw new Error(response?.msg || 'Approval failed. Please try again.');
+          throw new Error(friendlyToolMessage(response?.msg, 'Approval failed. Please try again.'));
         }
 
         email.approved = true;
@@ -8203,11 +8226,11 @@ This email has been pushed to the brief.
       });
       const response = parseFindStateResponse(result);
       if (result?.isError || result?.error || !response || !window.isTrueFlag(response.process_flag)) {
-        throw new Error((response && response.msg) || 'Unable to load the email draft.');
+        throw new Error(friendlyToolMessage(response && response.msg, 'Unable to load the email draft.'));
       }
       const rows = draftRowsFor(response);
       if (!rows.length) {
-        throw new Error(response.msg || 'Email Content missing');
+        throw new Error(friendlyToolMessage(response.msg, 'Email Content missing'));
       }
       return { response, rows };
     }
@@ -8257,7 +8280,8 @@ This email has been pushed to the brief.
 
     // Hides the app shell/grid and shows the loading screen with an error message, used when the
     // launch flow fails to produce usable email content.
-    function showLoadError(message = 'Unable to load email content') {
+    function showLoadError(message) {
+      message = friendlyToolMessage(message, loadErrorFallbackMessage);
       appShell.hidden = true;
       appGrid.hidden = true;
       appShell.setAttribute('aria-busy', 'true');
