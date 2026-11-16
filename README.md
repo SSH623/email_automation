@@ -16,7 +16,7 @@ Email Automation is one project made of four Workato MCP apps. Together they cov
 | **Tactic Selection** | Search and filter the available tactic library by status, then send a selected tactic and its context to chat. | v1 |
 | **Brief Builder** | Validate a tactic's email support, load its generated brief, choose or edit suggested copy, optionally enhance fields with AI, and send a structured brief to the email composer. | v1 |
 | **Email Studio** | Load saved email drafts for a tactic, edit and preview email content, and customize templates, layouts, rich text, calls to action, and banners. | v2.3 |
-| **Email Revision App** | Revise emails. Development has started in Sandbox. | In progress |
+| **Email Revision App** | Load one email for revision, edit and enhance its content, save drafts, push to the brief, build and approve it. | v1.6 |
 
 ## Repository Layout
 
@@ -35,10 +35,11 @@ email_automation/
 		Production/email_studio.html
 		Sandbox/email_studio.html
 	Email Revision App/
+		Production/email_revision.html
 		Sandbox/email_revision.html
 ```
 
-Use the `Production` copy for the deployed app and the `Sandbox` copy for development and testing. The Email Revision App has no Production copy yet.
+Use the `Production` copy for the deployed app and the `Sandbox` copy for development and testing.
 
 ## Runtime
 
@@ -64,13 +65,20 @@ If an app loads from a new domain, add it to this table and to the app's allowed
 | Tactic Selection | v1 | Initial release. Production and Sandbox are identical. |
 | Brief Builder | v1 | Initial release. Sandbox adds help text for the event fields (time zone, start time, end time, location, title) that Production does not have yet. |
 | Email Studio | v2.3 | Fixed MongoDB logo image in every email preview. See the changelog below. |
-| Email Revision App | v1.5 (Sandbox) | Loads one email for revision, with Enhance with AI on body paragraphs. Long or HTML tool errors are replaced by a short message. Saves through `Email_Brief_Schema` "Save_Revision". Single-email push only, and the CTA URL keeps its UTM parameters. Audience-secured or scheduled emails keep their received send date and banner, build against their own Marketo program, and pre-event/post-event ones also keep their template and layout. Not in Production yet. See the changelog below. |
+| Email Revision App | v1.6 | Loads one email for revision, with Enhance with AI on body paragraphs. Long or HTML tool errors are replaced by a short message. Saves through `Email_Brief_Schema` "Save_Revision". Single-email push only, and the CTA URL keeps its UTM parameters. Audience-secured or scheduled emails keep their received send date and banner, build against their own Marketo program, and pre-event/post-event ones also keep their template and layout. Production and Sandbox are identical. See the changelog below. |
 
 When Sandbox changes are promoted to Production, bump the version here and add an entry to the app's changelog. Production keeps a single file; earlier versions live in the git history. Put the release date under each changelog entry.
 
 ## Email Revision App Changelog
 
-Sandbox only for now (`Email Revision App/Sandbox/email_revision.html`, started as a copy of Email Studio v2.3). Each push adds the next version here. Commits made between two pushes all belong to the same version and are listed under it.
+Production is `Email Revision App/Production/email_revision.html` and Sandbox is `Email Revision App/Sandbox/email_revision.html` (started as a copy of Email Studio v2.3). Each push adds the next version here. Commits made between two pushes all belong to the same version and are listed under it.
+
+### v1.6
+
+Released 2026-11-16. First Production release. Promoted from Sandbox to Production. Production is identical to Sandbox (v1.5), with no code changes.
+
+- New `Email Revision App/Production/email_revision.html`, a copy of the Sandbox file.
+- Before deploying, allow the domains listed under App Setup for the Production MCP UI resource.
 
 ### v1.5
 
