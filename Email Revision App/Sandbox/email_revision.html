@@ -3123,6 +3123,12 @@ This email has been pushed to the brief.
       return isAudienceSecured(email) || isEmailScheduled(email);
     }
 
+    // Whether the banner image is locked: any locking flag true (audience secured, scheduled, or
+    // sending within 24 hours), for every email type, whatever the template allows.
+    function isBannerLocked(email) {
+      return hasLockingRestriction(email);
+    }
+
     // Whether the email's template and layout are locked by a revision restriction (see above).
     function isDesignRestricted(email) {
       if (!email || isReminderEmail(email) || !RESTRICTED_DEFAULT_TEMPLATES[email.renderFamily]) return false;
@@ -5296,6 +5302,10 @@ This email has been pushed to the brief.
     // Whether the email's banner image state should block push/confirm actions: true while an upload
     // is in progress/pending, or if the template requires a banner and the last upload failed.
     function bannerUploadBlocksAction(email) {
+      // A locked banner can't be changed, so it never blocks anything.
+      if (isBannerLocked(email)) {
+        return false;
+      }
       if (email.bannerUploadInFlight || email.bannerUploadStatus === 'pending') {
         return true;
       }
@@ -5348,9 +5358,20 @@ This email has been pushed to the brief.
 
     // Why an edit-only email can't be built yet, or ''. The recipe silently skips an email without a
     // program, tactic link or task link, so Build stays disabled instead.
+    // The Marketo program ID sent as marketo_program_id to Email_Release_Pipeline. When the email's
+    // audience is secured or it is already scheduled (hasLockingRestriction), whatever its type, it is
+    // the email's own program: the email_marketo_program_id field on its saved draft from
+    // get_email_draft. Otherwise it is the tactic's program (marketoProgramId), as before.
+    function programIdFor(email) {
+      if (hasLockingRestriction(email)) {
+        return (email && email.emailMarketoProgramId) || '';
+      }
+      return marketoProgramId;
+    }
+
     function editOnlyBuildBlocker(email) {
       if (!isEditOnlyEmail(email)) return '';
-      if (!marketoProgramId || !tacticLink || !email.taskLink) {
+      if (!programIdFor(email) || !tacticLink || !email.taskLink) {
         return "This email can't be built: its program, tactic or task link is missing. Please reach out to MOPs.";
       }
       return '';
@@ -5545,7 +5566,10 @@ This email has been pushed to the brief.
         return;
       }
 
-      const required = isBannerRequired(email.template);
+      // When any locking flag is true (audience secured, scheduled, or sending within 24 hours), the
+      // banner can't be changed for any email type, so the field is hidden and the received banner is
+      // kept and sent unchanged.
+      const required = isBannerRequired(email.template) && !isBannerLocked(email);
       wrapper.hidden = !required;
       if (!required) {
         return;
@@ -6601,7 +6625,7 @@ This email has been pushed to the brief.
         tactic_link: tacticLink,
         brief_document_id: briefDocId,
         email_brief_tabs: tabTitle || '',
-        marketo_program_id: marketoProgramId,
+        marketo_program_id: programIdFor(emailsToPush[0]),
         emails: emailsToPush.map((email) => buildEmailToken(email, options.schedule)),
         process_name: options.processName,
       }));
@@ -6619,7 +6643,7 @@ This email has been pushed to the brief.
       const type = registrationProcessName(email);
       return JSON.parse(JSON.stringify({
         process_name: type,
-        marketo_program_id: marketoProgramId,
+        marketo_program_id: programIdFor(email),
         confirmation_waitlist_email: [{
           email_type: type,
           from_name: email.fromName,
@@ -6642,7 +6666,7 @@ This email has been pushed to the brief.
     function buildEditOnlyRequest(email) {
       return JSON.parse(JSON.stringify({
         process_name: editOnlyProcessName(email),
-        marketo_program_id: marketoProgramId,
+        marketo_program_id: programIdFor(email),
         tactic_link: tacticLink,
         emails: [{ ...buildEmailToken(email), change_comment: buildChangeComment(email) }],
       }));
@@ -6730,6 +6754,8 @@ This email has been pushed to the brief.
 
         tactic_name: tacticTitle || '',
         tactic_link: tacticLink,
+        // The email's own Marketo program, so every saved draft keeps it (see programIdFor).
+        email_marketo_program_id: email.emailMarketoProgramId || '',
 
         from_name: email.fromName || defaultFromName,
         reply_to_email_address: email.replyTo || '',
@@ -7100,6 +7126,8 @@ This email has been pushed to the brief.
       enforceRestrictedDesign(email);
       // ...and give it a send date if it arrived without one, since its Send date field is hidden.
       ensureRestrictedSendDate(email);
+      // The email's own Marketo program (see programIdFor). Kept when a saved draft doesn't carry it.
+      email.emailMarketoProgramId = String(data.email_marketo_program_id || email.emailMarketoProgramId || '').trim();
       email.sendDatetime = data.send_datetime || email.sendDatetime || '';
       email.draftDatetime = data.draft_datetime || email.draftDatetime || '';
       email.emailTemplateFound = data.email_template_found;
@@ -7200,7 +7228,7 @@ This email has been pushed to the brief.
     // to discard stale results if the user navigates away or retries before this upload finishes.
     async function uploadBannerFromUrl(rawUrl) {
       const email = current();
-      if (!email || email.bannerUploadInFlight || email.bannerUploadStatus === 'pending') {
+      if (!email || isBannerLocked(email) || email.bannerUploadInFlight || email.bannerUploadStatus === 'pending') {
         return;
       }
 
@@ -8130,9 +8158,16 @@ This email has been pushed to the brief.
         .flatMap((row) => (Array.isArray(row?.emails) ? row.emails : [row]))
         .filter(Boolean);
       const forTask = launchTaskLink ? rows.filter((row) => row.task_link === launchTaskLink) : [];
-      return (forTask.length ? forTask : rows)
+      const sorted = (forTask.length ? forTask : rows)
         .slice()
         .sort((left, right) => new Date(right.draft_datetime || 0) - new Date(left.draft_datetime || 0));
+      // The newest draft's email_marketo_program_id decides which drafts belong to this email: drafts
+      // saved under another program ID (or with none) are left out of the email, the saved-draft picker
+      // and the change comment. If the newest draft has no program ID, every draft is kept.
+      const programId = sorted.length ? String(sorted[0].email_marketo_program_id || '').trim() : '';
+      return programId
+        ? sorted.filter((row) => String(row.email_marketo_program_id || '').trim() === programId)
+        : sorted;
     }
 
     // Reads tactic identity and brief info out of an Email_Editor_Utility "get_email_draft" response.

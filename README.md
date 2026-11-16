@@ -64,13 +64,32 @@ If an app loads from a new domain, add it to this table and to the app's allowed
 | Tactic Selection | v1 | Initial release. Production and Sandbox are identical. |
 | Brief Builder | v1 | Initial release. Sandbox adds help text for the event fields (time zone, start time, end time, location, title) that Production does not have yet. |
 | Email Studio | v2.3 | Fixed MongoDB logo image in every email preview. See the changelog below. |
-| Email Revision App | v1.3 (Sandbox) | Loads one email for revision, with Enhance with AI on body paragraphs. Saves through `Email_Brief_Schema` "Save_Revision". Single-email push only, and the CTA URL keeps its UTM parameters. Audience-secured or within-24-hours emails keep their received send date, and pre-event/post-event ones also keep their template and layout. Not in Production yet. See the changelog below. |
+| Email Revision App | v1.4 (Sandbox) | Loads one email for revision, with Enhance with AI on body paragraphs. Saves through `Email_Brief_Schema` "Save_Revision". Single-email push only, and the CTA URL keeps its UTM parameters. Audience-secured or scheduled emails keep their received send date and banner, build against their own Marketo program, and pre-event/post-event ones also keep their template and layout. Not in Production yet. See the changelog below. |
 
 When Sandbox changes are promoted to Production, bump the version here and add an entry to the app's changelog. Production keeps a single file; earlier versions live in the git history. Put the release date under each changelog entry.
 
 ## Email Revision App Changelog
 
 Sandbox only for now (`Email Revision App/Sandbox/email_revision.html`, started as a copy of Email Studio v2.3). Each push adds the next version here. Commits made between two pushes all belong to the same version and are listed under it.
+
+### v1.4
+
+Committed 2026-11-16.
+
+**Locked emails use their own Marketo program**
+- When any locking flag is true (`restrictions_audience_secured`, `audience_secured`, `email_schedule`, `restrictions_send_within_24_hours`), every `Email_Release_Pipeline` call sends the email's own `email_marketo_program_id` as `marketo_program_id`, whatever the email type. Otherwise it sends the tactic's program ID, as before.
+- The email's program ID is read from `email_marketo_program_id` on its saved draft in the `get_email_draft` response (`saved_email_content`). A draft without one keeps the ID already loaded.
+- Edit-only Build stays disabled with the "program, tactic or task link is missing" message when that ID is empty.
+
+**Saves keep the email's program ID**
+- `Save_Revision` now sends `email_marketo_program_id` inside `revision_email[0]`, on Save draft and on the background saves after Push, Build and Approve. Before, every save dropped it, so a reload lost the ID.
+
+**Saved drafts are limited to the current program**
+- On load, Refresh, the saved-draft picker and the change comment baseline, only drafts with the same `email_marketo_program_id` as the newest draft are used. If the newest draft has no program ID, every draft is kept.
+
+**Banner image locked for secured or scheduled emails**
+- When any locking flag is true, the Banner image field is hidden for every email type, even when the template shows a banner, and uploads are refused in code. The banner the email was received with is kept and sent unchanged.
+- A missing or failed banner no longer blocks Push, Build or Approve for these emails, and the "Upload a banner image" guidance doesn't appear. This replaces the v1.3 note that the banner stays editable for edit-only emails.
 
 ### v1.3
 
