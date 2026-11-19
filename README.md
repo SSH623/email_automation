@@ -1,6 +1,6 @@
 # Email Automation
 
-Email Automation is one project made of four Workato MCP apps. Together they cover the email campaign workflow, from picking a tactic to building and approving its emails. Tactic Selection and Brief Builder are **v1**, Email Studio is **v2.3**, and the Email Revision App is in progress.
+Email Automation is one project made of four Workato MCP apps. Together they cover the email campaign workflow, from picking a tactic to building and approving its emails. Tactic Selection and Brief Builder are **v1**, Email Studio is **v2.4**, and the Email Revision App is in progress.
 
 ## Workflow
 
@@ -15,8 +15,8 @@ Email Automation is one project made of four Workato MCP apps. Together they cov
 | --- | --- | --- |
 | **Tactic Selection** | Search and filter the available tactic library by status, then send a selected tactic and its context to chat. | v1 |
 | **Brief Builder** | Validate a tactic's email support, load its generated brief, choose or edit suggested copy, optionally enhance fields with AI, and send a structured brief to the email composer. | v1 |
-| **Email Studio** | Load saved email drafts for a tactic, edit and preview email content, and customize templates, layouts, rich text, calls to action, and banners. | v2.3 |
-| **Email Revision App** | Load one email for revision, edit and enhance its content, save drafts, push to the brief, build and approve it. | v1.6 |
+| **Email Studio** | Load saved email drafts for a tactic, edit and preview email content, and customize templates, layouts, rich text, calls to action, and banners. | v2.4 |
+| **Email Revision App** | Load one email for revision, edit and enhance its content, save drafts, push to the brief, build and approve it. | v1.7 |
 
 ## Repository Layout
 
@@ -64,14 +64,25 @@ If an app loads from a new domain, add it to this table and to the app's allowed
 | --- | --- | --- |
 | Tactic Selection | v1 | Initial release. Production and Sandbox are identical. |
 | Brief Builder | v1 | Initial release. Sandbox adds help text for the event fields (time zone, start time, end time, location, title) that Production does not have yet. |
-| Email Studio | v2.3 | Fixed MongoDB logo image in every email preview. See the changelog below. |
-| Email Revision App | v1.6 | Loads one email for revision, with Enhance with AI on body paragraphs. Long or HTML tool errors are replaced by a short message. Saves through `Email_Brief_Schema` "Save_Revision". Single-email push only, and the CTA URL keeps its UTM parameters. Audience-secured or scheduled emails keep their received send date and banner, build against their own Marketo program, and pre-event/post-event ones also keep their template and layout. Production and Sandbox are identical. See the changelog below. |
+| Email Studio | v2.4 | Full-screen mode: an Expand button opens the app full screen in Claude, with settings on the left and Template and layout above the preview on the right. The compact chat view is unchanged. Production and Sandbox are identical. See the changelog below. |
+| Email Revision App | v1.7 | Full-screen mode, the same as Email Studio v2.4. Loads one email for revision, with Enhance with AI on body paragraphs. Long or HTML tool errors are replaced by a short message. Saves through `Email_Brief_Schema` "Save_Revision". Single-email push only, and the CTA URL keeps its UTM parameters. Audience-secured or scheduled emails keep their received send date and banner, build against their own Marketo program, and pre-event/post-event ones also keep their template and layout. Production and Sandbox are identical. See the changelog below. |
 
 When Sandbox changes are promoted to Production, bump the version here and add an entry to the app's changelog. Production keeps a single file; earlier versions live in the git history. Put the release date under each changelog entry.
 
 ## Email Revision App Changelog
 
 Production is `Email Revision App/Production/email_revision.html` and Sandbox is `Email Revision App/Sandbox/email_revision.html` (started as a copy of Email Studio v2.3). Each push adds the next version here. Commits made between two pushes all belong to the same version and are listed under it.
+
+### v1.7
+
+Released 2026-11-19. Production and Sandbox are identical.
+
+**Full-screen mode**
+- The app now tells Claude it supports full screen (`availableDisplayModes: ["inline", "fullscreen"]` on the `App` from `@modelcontextprotocol/ext-apps` 1.3.1). Claude owns the frame size; the app only asks to switch with `app.requestDisplayMode`.
+- New Expand / Collapse button in the top bar, left of the "?" tour button. It shows only when Claude lists `fullscreen` in `availableDisplayModes`, so it never appears where it would do nothing.
+- The button follows Claude's state (`onhostcontextchanged`), so leaving full screen with Claude's own control or Escape switches it back to Expand. Claude's `safeAreaInsets` are applied as padding.
+- The compact view in the chat is unchanged. Every full-screen rule depends on an `is-fullscreen` class on `<html>`, set only while Claude reports `displayMode: "fullscreen"`.
+- In full screen the app fills the screen height and up to 1600px of width. On screens 1100px and wider the content becomes two columns: Email settings on the left, Template and layout with the content preview right under it on the right (wide enough to show the email at its full 560px). The progress bar spans both columns. When Template and layout is hidden (reminder emails, or locked designs), the preview moves to the top of the right column.
 
 ### v1.6
 
@@ -277,6 +288,17 @@ Committed 2026-11-13.
 - **Setup:** the banner preview only loads once the image domains are allowed in the app's resource settings. See [App Setup](#app-setup).
 
 ## Email Studio Changelog
+
+### v2.4
+
+Released 2026-11-19. Built in Sandbox, then copied to Production. Production and Sandbox are identical.
+
+**Full-screen mode**
+- The app now tells Claude it supports full screen (`availableDisplayModes: ["inline", "fullscreen"]` on the `App` from `@modelcontextprotocol/ext-apps` 1.3.1). Claude owns the frame size; the app only asks to switch with `app.requestDisplayMode`.
+- New Expand / Collapse button in the top bar, left of the "?" tour button. It shows only when Claude lists `fullscreen` in `availableDisplayModes`, so it never appears where it would do nothing.
+- The button follows Claude's state (`onhostcontextchanged`), so leaving full screen with Claude's own control or Escape switches it back to Expand. Claude's `safeAreaInsets` are applied as padding.
+- The compact view in the chat is unchanged. Every full-screen rule depends on an `is-fullscreen` class on `<html>`, set only while Claude reports `displayMode: "fullscreen"`.
+- In full screen the app fills the screen height and up to 1600px of width. On screens 1100px and wider the content becomes two columns: Email settings on the left, Template and layout with the content preview right under it on the right (wide enough to show the email at its full 560px). The progress bar spans both columns. When Template and layout is hidden (reminder emails, or locked designs), the preview moves to the top of the right column.
 
 ### v2.3
 

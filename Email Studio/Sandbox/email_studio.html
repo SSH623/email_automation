@@ -218,6 +218,37 @@ button:focus-visible,input:focus-visible,[contenteditable=true]:focus-visible {
   border-color:var(--artifact-forest);
   background:var(--artifact-mist)
 }
+/* Expand / collapse button, left of the tour button. Shown only when the host offers fullscreen. */
+.display-mode-button {
+  position:absolute;
+  top:0;
+  right:42px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:30px;
+  height:30px;
+  padding:0;
+  border:1px solid var(--artifact-border);
+  border-radius:6px;
+  background:var(--artifact-surface-soft);
+  color:var(--artifact-forest);
+  line-height:1
+}
+.display-mode-button[hidden] {
+  display:none
+}
+.display-mode-button svg {
+  width:14px;
+  height:14px
+}
+.display-mode-button .icon-collapse,
+html.is-fullscreen .display-mode-button .icon-expand {
+  display:none
+}
+html.is-fullscreen .display-mode-button .icon-collapse {
+  display:block
+}
 .brand-copy {
   display:grid;
   gap:3px
@@ -1738,6 +1769,45 @@ body.rich-editor-open {
   width:0;
   height:0
 }
+/* Fullscreen: the host gives the frame a fixed size, so filling the viewport is safe here (no
+   feedback loop like inline mode). --safe-* come from the host's safeAreaInsets. */
+html.is-fullscreen .app-shell {
+  height:100vh;
+  max-width:1600px;
+  padding:calc(12px + var(--safe-top,0px)) calc(12px + var(--safe-right,0px)) calc(12px + var(--safe-bottom,0px)) calc(12px + var(--safe-left,0px))
+}
+/* Fullscreen on a wide screen: settings on the left; template/layout and, right under it, the email
+   preview on the right (wide enough to show the email at its full 560px). The progress bar spans both
+   columns. Reminder emails hide template/layout, so the preview moves up to the top of the right column. */
+@media(min-width:1100px) {
+  html.is-fullscreen .content {
+    display:grid;
+    grid-template-columns:minmax(380px,1fr) minmax(612px,1.2fr);
+    /* Row 3 is flexible so a tall settings panel stretches that row, not the template/layout row,
+       which keeps the preview tight under template/layout. */
+    grid-template-rows:auto auto 1fr;
+    column-gap:16px;
+    align-items:start
+  }
+  html.is-fullscreen .tracker,
+  html.is-fullscreen .brief-ready {
+    grid-column:1 / -1
+  }
+  html.is-fullscreen .settings-panel {
+    grid-column:1;
+    grid-row:2 / span 2
+  }
+  html.is-fullscreen .design-section {
+    grid-column:2;
+    grid-row:2;
+    margin:0 0 16px
+  }
+  html.is-fullscreen .preview-panel {
+    grid-column:2;
+    grid-row:3;
+    margin-top:0
+  }
+}
 .app-grid {
   display:block;
   min-height:0;
@@ -2240,7 +2310,7 @@ html[data-theme=dark] .guide-chip.is-blocker {
   border-color:var(--artifact-forest);
   box-shadow:0 0 0 2px var(--artifact-forest)
 }
-.layout-button:hover,.step-btn:hover:not(:disabled),.task-add-button:hover:not(:disabled),.choice-number:hover,.copy-mini:hover,.get-changes-button:hover:not(:disabled),.help-button:hover {
+.layout-button:hover,.step-btn:hover:not(:disabled),.task-add-button:hover:not(:disabled),.choice-number:hover,.copy-mini:hover,.get-changes-button:hover:not(:disabled),.help-button:hover,.display-mode-button:hover {
   border-color:var(--artifact-forest);
   box-shadow:0 0 0 2px var(--artifact-forest)
 }
@@ -2564,6 +2634,10 @@ Review, edit, and approve email content.
 </div>
 </div>
 </div>
+<button type="button" class="display-mode-button" data-display-mode aria-label="Expand to full screen" title="Expand to full screen" aria-pressed="false" hidden>
+<svg class="icon-expand" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2h4v4M6 14H2v-4M14 2 9.5 6.5M2 14l4.5-4.5"/></svg>
+<svg class="icon-collapse" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 7H9V3M3 9h4v4M9 7l5-5M7 9l-5 5"/></svg>
+</button>
 <button type="button" class="help-button" data-help-tour aria-label="Take a tour" title="Take a tour">?</button>
 </header>
 <div class="app-body">
@@ -2874,12 +2948,59 @@ All emails in this brief have been confirmed and pushed to the brief.
 
     loadTiptap();
 
-    const app = new App({
-      name: "Tactic Email Studio",
-      version: "1.0.0",
-    });
+    const app = new App(
+      { name: "Tactic Email Studio", version: "1.0.0" },
+      { availableDisplayModes: ["inline", "fullscreen"] },
+    );
 
     window.tacticEmailStudioApp = app;
+
+    // ---- Display mode (inline / fullscreen) ----------------------------------------------------
+    // The host owns the frame size; the app only declares fullscreen support and asks to switch.
+    // The button stays hidden unless the host lists fullscreen, and follows the host's state so it
+    // stays right when the user exits through the host's own control or Escape.
+    const displayModeButton = document.querySelector("[data-display-mode]");
+
+    let currentDisplayMode = "inline";
+
+    // ctx is the (possibly partial) host context; modeOverride is the mode a requestDisplayMode
+    // call returned, for hosts that don't follow it with a context change.
+    function applyHostContext(ctx, modeOverride) {
+      ctx = ctx || {};
+      const root = document.documentElement;
+      if (ctx.safeAreaInsets) {
+        ["top", "right", "bottom", "left"].forEach((side) => {
+          root.style.setProperty("--safe-" + side, (ctx.safeAreaInsets[side] || 0) + "px");
+        });
+      }
+      currentDisplayMode = modeOverride || ctx.displayMode || app.getHostContext()?.displayMode || currentDisplayMode;
+      const full = currentDisplayMode === "fullscreen";
+      root.classList.toggle("is-fullscreen", full);
+      if (displayModeButton) {
+        const modes = app.getHostContext()?.availableDisplayModes || [];
+        displayModeButton.hidden = !modes.includes("fullscreen");
+        const label = full ? "Exit full screen" : "Expand to full screen";
+        displayModeButton.setAttribute("aria-label", label);
+        displayModeButton.title = label;
+        displayModeButton.setAttribute("aria-pressed", String(full));
+      }
+      window.dispatchEvent(new Event("resize"));
+    }
+
+    app.onhostcontextchanged = applyHostContext;
+
+    if (displayModeButton) {
+      displayModeButton.addEventListener("click", async () => {
+        const full = currentDisplayMode === "fullscreen";
+        try {
+          const result = await app.requestDisplayMode({ mode: full ? "inline" : "fullscreen" });
+          // Some hosts answer the request without sending a context change, so apply the result too.
+          applyHostContext(null, result && result.mode);
+        } catch (error) {
+          console.warn("[display-mode] request failed", error);
+        }
+      });
+    }
 
     // Normalizes an MCP tool-call response into the plain result object callers expect: prefers
     // structuredContent, falls back to parsing JSON out of content[0].text, unwraps a `.result`
@@ -2982,6 +3103,7 @@ All emails in this brief have been confirmed and pushed to the brief.
     try {
       await app.connect();
       console.info("[launch] app.connect() succeeded");
+      applyHostContext(app.getHostContext());
     } catch (error) {
       console.error("[launch] app.connect() threw", error);
       window.dispatchEvent(new CustomEvent("email-content-load-error", {
